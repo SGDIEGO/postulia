@@ -1,0 +1,36 @@
+# Dependencias
+node_modules/
+
+# Builds
+dist/
+build/
+.output/
+.wxt/
+*.tsbuildinfo
+
+# Entorno
+.env
+.env.*
+!.env.example
+
+# Paquetes de la extensión
+*.zip
+*.crx
+*.pem
+
+# Prisma
+apps/api/prisma/migrations/dev.db*
+
+# Logs y temporales
+*.log
+logs/
+coverage/
+.tmp/
+.turbo/
+
+# Editores / sistema
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json

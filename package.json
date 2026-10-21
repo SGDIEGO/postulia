@@ -1,0 +1,35 @@
+{
+  "name": "postulia",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Postulia — seguimiento de postulaciones laborales: extensión de Chrome + API propia",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @postulia/shared && npm run build -w @postulia/api && npm run build -w @postulia/extension",
+    "build:shared": "npm run build -w @postulia/shared",
+    "dev:api": "npm run build:shared && npm run dev -w @postulia/api",
+    "dev:ext": "npm run build:shared && npm run dev -w @postulia/extension",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run build:shared && npm run test --workspaces --if-present",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "prettier": "^3.6.2",
+    "typescript": "5.9.3"
+  },
+  "allowScripts": {
+    "@prisma/client@6.19.3": true,
+    "@prisma/engines@6.19.3": true,
+    "esbuild@0.28.2": true,
+    "prisma@6.19.3": true
+  }
+}

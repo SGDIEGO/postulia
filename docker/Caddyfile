@@ -1,0 +1,20 @@
+# Caddy obtiene y renueva el certificado TLS automáticamente (Let's Encrypt).
+# Requiere que el dominio apunte por DNS a este servidor y que los puertos
+# 80 y 443 estén abiertos.
+{$DOMAIN} {
+	encode zstd gzip
+
+	reverse_proxy api:3000
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		-Server
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

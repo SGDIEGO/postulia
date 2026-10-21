@@ -1,0 +1,141 @@
+// Esquema de Prisma para Postulia (PostgreSQL)
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String          @id @default(uuid()) @db.Uuid
+  email         String          @unique
+  passwordHash  String          @map("password_hash")
+  name          String?
+  createdAt     DateTime        @default(now()) @map("created_at")
+  updatedAt     DateTime        @updatedAt @map("updated_at")
+  applications  Application[]
+  events        ApplicationEvent[]
+  reminders     Reminder[]
+  tags          Tag[]
+  refreshTokens RefreshToken[]
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
+  userAgent String?   @map("user_agent")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model Application {
+  id               String    @id @default(uuid()) @db.Uuid
+  userId           String    @map("user_id") @db.Uuid
+  jobTitle         String    @map("job_title")
+  company          String
+  url              String?
+  urlHash          String?   @map("url_hash")
+  source           String    @default("other")
+  location         String?
+  workMode         String?   @map("work_mode")
+  salary           String?
+  currency         String?
+  contractType     String?   @map("contract_type")
+  status           String    @default("saved")
+  appliedAt        DateTime? @map("applied_at")
+  notes            String?
+  recruiterName    String?   @map("recruiter_name")
+  recruiterContact String?   @map("recruiter_contact")
+  cvVersion        String?   @map("cv_version")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+  deletedAt        DateTime? @map("deleted_at")
+
+  user      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  events    ApplicationEvent[]
+  reminders Reminder[]
+  tags      ApplicationTag[]
+
+  @@index([userId, updatedAt])
+  @@index([userId, status])
+  @@index([userId, urlHash])
+  @@map("applications")
+}
+
+model ApplicationEvent {
+  id            String    @id @default(uuid()) @db.Uuid
+  applicationId String    @map("application_id") @db.Uuid
+  userId        String    @map("user_id") @db.Uuid
+  type          String
+  message       String?
+  fromStatus    String?   @map("from_status")
+  toStatus      String?   @map("to_status")
+  occurredAt    DateTime  @map("occurred_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  deletedAt     DateTime? @map("deleted_at")
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([applicationId, occurredAt])
+  @@index([userId, updatedAt])
+  @@map("application_events")
+}
+
+model Reminder {
+  id            String    @id @default(uuid()) @db.Uuid
+  applicationId String    @map("application_id") @db.Uuid
+  userId        String    @map("user_id") @db.Uuid
+  dueAt         DateTime  @map("due_at")
+  message       String?
+  done          Boolean   @default(false)
+  notifiedAt    DateTime? @map("notified_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  deletedAt     DateTime? @map("deleted_at")
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, dueAt])
+  @@map("reminders")
+}
+
+model Tag {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  name      String
+  color     String?
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  applications ApplicationTag[]
+
+  @@unique([userId, name])
+  @@map("tags")
+}
+
+model ApplicationTag {
+  applicationId String @map("application_id") @db.Uuid
+  tagId         String @map("tag_id") @db.Uuid
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  tag         Tag         @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([applicationId, tagId])
+  @@map("application_tags")
+}
