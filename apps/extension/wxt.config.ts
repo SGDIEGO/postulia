@@ -25,6 +25,7 @@ export default defineConfig({
       "tabs",
       "activeTab",
       "scripting",
+      "offscreen",
     ],
     optional_host_permissions: ["https://*/*", "http://localhost/*"],
     action: {
