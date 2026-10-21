@@ -1,7 +1,12 @@
 import type { ApplicationRecord, ApplicationStatus } from "@postulia/shared";
 import { browser } from "wxt/browser";
 import type { ExtractedJobResult } from "./extractors/types";
-import type { SearchFilters, Source, DiscoveryAction, DiscoverySearchResult } from "@postulia/shared";
+import type {
+  SearchFilters,
+  Source,
+  DiscoveryAction,
+  DiscoverySearchResult,
+} from "@postulia/shared";
 
 export interface CapturePayload extends ExtractedJobResult {
   status: ApplicationStatus;
@@ -19,14 +24,32 @@ export type BackgroundRequest =
   | { type: "postulia:open-sidepanel"; tabId?: number }
   | { type: "postulia:check-reminders" }
   // Discovery
-  | { type: "discovery:search"; query: string; filters: SearchFilters; source?: Source }
-  | { type: "discovery:list"; query?: string; source?: Source; filters?: SearchFilters; page: number; pageSize: number }
+  | {
+      type: "discovery:search";
+      query: string;
+      filters: SearchFilters;
+      source?: Source;
+      page?: number;
+      pageSize?: number;
+    }
+  | {
+      type: "discovery:list";
+      query?: string;
+      source?: Source;
+      filters?: SearchFilters;
+      page: number;
+      pageSize: number;
+    }
   | { type: "discovery:action"; jobId: string; action: DiscoveryAction; reminderDays?: number }
   | { type: "discovery:history" }
-  | { type: "discovery:alert:create"; alert: Omit<import("@postulia/shared").SearchAlert, "id" | "createdAt"> }
+  | {
+      type: "discovery:alert:create";
+      alert: Omit<import("@postulia/shared").SearchAlert, "id" | "createdAt">;
+    }
   | { type: "discovery:alert:list" }
   | { type: "discovery:alert:toggle"; id: string; enabled: boolean }
-  | { type: "discovery:alert:delete"; id: string };
+  | { type: "discovery:alert:delete"; id: string }
+  | { type: "discovery:run-alerts" };
 
 export interface ExtensionStatus {
   apiUrl: string;
@@ -56,6 +79,31 @@ export type DiscoveryAlertResponse = import("@postulia/shared").SearchAlert[];
 export type DiscoveryAlertActionResponse = { ok: boolean };
 
 /** Envía una petición al service worker desde cualquier contexto. */
-export async function sendMessage<T>(request: BackgroundRequest): Promise<T> {
-  return (await browser.runtime.sendMessage(request)) as T;
+export async function sendMessage<T>(
+  request: BackgroundRequest,
+  options: { timeoutMs?: number } = {},
+): Promise<T> {
+  const timeoutMs = options.timeoutMs ?? 60_000;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  try {
+    const result = await Promise.race([
+      browser.runtime.sendMessage(request),
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(
+          () =>
+            reject(
+              new Error(
+                `La extensión no respondió en ${Math.round(timeoutMs / 1000)} s. Recarga la extensión e inténtalo de nuevo.`,
+              ),
+            ),
+          timeoutMs,
+        );
+      }),
+    ]);
+
+    return result as T;
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
 }

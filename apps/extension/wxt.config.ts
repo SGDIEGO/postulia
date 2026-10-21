@@ -25,7 +25,14 @@ export default defineConfig({
       "tabs",
       "activeTab",
       "scripting",
-      "offscreen",
+    ],
+    host_permissions: [
+      "*://*.linkedin.com/*",
+      "*://*.indeed.com/*",
+      "*://*.computrabajo.com/*",
+      "*://*.bumeran.com/*",
+      "*://*.getonbrd.com/*",
+      "*://*.torre.ai/*",
     ],
     optional_host_permissions: ["https://*/*", "http://localhost/*"],
     action: {

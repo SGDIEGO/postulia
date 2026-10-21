@@ -69,13 +69,15 @@ async function extractFromTab(tabId: number): Promise<ExtractedJobResult | null 
 
 type SidePanelTab = "capture" | "discover";
 
+const DISCOVER_PAGE_SIZE = 20;
+
 export function SidePanelApp() {
   const [activeTab, setActiveTab] = useState<SidePanelTab>("capture");
   const [capture, setCapture] = useState<CaptureState>({ stage: "loading" });
   const [status, setStatus] = useState<ApplicationStatus>("applied");
   const [notes, setNotes] = useState("");
   const [activeTabId, setActiveTabId] = useState<number | null>(null);
-  
+
   // Discover state
   const [discoverQuery, setDiscoverQuery] = useState("");
   const [discoverFilters, setDiscoverFilters] = useState<SearchFilters>({
@@ -87,9 +89,12 @@ export function SidePanelApp() {
   const [discoverResults, setDiscoverResults] = useState<DiscoveredJob[]>([]);
   const [discoverLoading, setDiscoverLoading] = useState(false);
   const [discoverError, setDiscoverError] = useState<string | null>(null);
+  const [discoverWarnings, setDiscoverWarnings] = useState<string[]>([]);
   const [discoverPage, setDiscoverPage] = useState(1);
   const [discoverTotal, setDiscoverTotal] = useState(0);
-  const [discoverHistory, setDiscoverHistory] = useState<Array<{ query: string; executedAt: string; resultCount: number }>>([]);
+  const [discoverHistory, setDiscoverHistory] = useState<
+    Array<{ query: string; executedAt: string; resultCount: number }>
+  >([]);
   const [showHistory, setShowHistory] = useState(false);
 
   const applications = useApplications() ?? [];
@@ -189,7 +194,9 @@ export function SidePanelApp() {
   // --- Discover functions ---
   async function loadDiscoverHistory() {
     try {
-      const history = await sendMessage<Array<{ query: string; executedAt: string; resultCount: number }>>({
+      const history = await sendMessage<
+        Array<{ query: string; executedAt: string; resultCount: number }>
+      >({
         type: "discovery:history",
       });
       setDiscoverHistory(history.slice(0, 10));
@@ -198,9 +205,25 @@ export function SidePanelApp() {
     }
   }
 
-  async function runDiscoverSearch(isNewSearch = true) {
+  function normalizeDiscoveryResult(
+    response: (DiscoverySearchResult & { error?: string }) | null | undefined,
+  ): DiscoverySearchResult {
+    if (!response || typeof response.error === "string") {
+      throw new Error(response?.error ?? "El buscador devolvió una respuesta vacía");
+    }
+    if (!Array.isArray(response.jobs)) {
+      throw new Error("El buscador devolvió una respuesta inválida");
+    }
+    return response;
+  }
+
+  async function runDiscoverSearch(isNewSearch = true, queryOverride?: string) {
+    const query = (queryOverride ?? discoverQuery).trim();
+    if (!query) return;
+
     setDiscoverLoading(true);
     setDiscoverError(null);
+    setDiscoverWarnings([]);
     if (isNewSearch) {
       setDiscoverPage(1);
       setDiscoverResults([]);
@@ -208,20 +231,24 @@ export function SidePanelApp() {
     }
 
     try {
-      const result = await sendMessage<{ jobs: DiscoveredJob[]; total: number; page: number; pageSize: number; hasMore: boolean }>({
-        type: "discovery:search",
-        query: discoverQuery.trim(),
-        filters: discoverFilters,
-        source: discoverSource === "all" ? undefined : discoverSource,
-      });
+      const response = await sendMessage<DiscoverySearchResult & { error?: string }>(
+        {
+          type: "discovery:search",
+          query,
+          filters: discoverFilters,
+          source: discoverSource === "all" ? undefined : discoverSource,
+          page: 1,
+          pageSize: DISCOVER_PAGE_SIZE,
+        },
+        { timeoutMs: 120_000 },
+      );
+      const result = normalizeDiscoveryResult(response);
 
       setDiscoverResults(result.jobs);
       setDiscoverTotal(result.total);
       setDiscoverPage(result.page);
-      setDiscoverError(null);
-
-      // Refresh history
-      loadDiscoverHistory();
+      setDiscoverWarnings(result.warnings ?? []);
+      void loadDiscoverHistory();
     } catch (error) {
       setDiscoverError(error instanceof Error ? error.message : "Error al buscar ofertas");
       console.error("[SidePanel] Discover search error:", error);
@@ -233,44 +260,66 @@ export function SidePanelApp() {
   async function loadMoreDiscover() {
     const nextPage = discoverPage + 1;
     setDiscoverLoading(true);
+    setDiscoverError(null);
     try {
-      const result = await sendMessage<{ jobs: DiscoveredJob[]; total: number; page: number; pageSize: number; hasMore: boolean }>({
-        type: "discovery:list",
-        query: discoverQuery.trim() || undefined,
-        filters: discoverFilters,
-        source: discoverSource === "all" ? undefined : discoverSource,
-        page: nextPage,
-        pageSize: 20,
-      });
+      const response = await sendMessage<DiscoverySearchResult & { error?: string }>(
+        {
+          type: "discovery:list",
+          query: discoverQuery.trim() || undefined,
+          filters: discoverFilters,
+          source: discoverSource === "all" ? undefined : discoverSource,
+          page: nextPage,
+          pageSize: DISCOVER_PAGE_SIZE,
+        },
+        { timeoutMs: 30_000 },
+      );
+      const result = normalizeDiscoveryResult(response);
 
-      setDiscoverResults(prev => [...prev, ...result.jobs]);
+      setDiscoverResults((prev) => {
+        const seen = new Set(prev.map((job) => job.id));
+        return [...prev, ...result.jobs.filter((job) => !seen.has(job.id))];
+      });
       setDiscoverTotal(result.total);
       setDiscoverPage(result.page);
     } catch (error) {
+      setDiscoverError(
+        error instanceof Error ? error.message : "No se pudieron cargar más ofertas",
+      );
       console.error("[SidePanel] Load more error:", error);
     } finally {
       setDiscoverLoading(false);
     }
   }
 
-  async function handleDiscoverAction(jobId: string, action: "save" | "dismiss" | "remind_later") {
+  async function handleDiscoverAction(jobId: string, action: DiscoveryAction) {
     try {
-      await sendMessage({ type: "discovery:action", jobId, action });
-      // Refresh results to show updated state
+      const response = await sendMessage<{ ok?: boolean; error?: string }>(
+        { type: "discovery:action", jobId, action },
+        { timeoutMs: 30_000 },
+      );
+      if (response?.error) throw new Error(response.error);
+
       if (action === "save" || action === "dismiss") {
-        setDiscoverResults(prev => prev.filter(j => j.id !== jobId));
-        setDiscoverTotal(prev => prev - 1);
+        setDiscoverResults((prev) => prev.filter((job) => job.id !== jobId));
+        setDiscoverTotal((prev) => Math.max(0, prev - 1));
+      } else {
+        const reminderAt = new Date(Date.now() + 3 * 86_400_000).toISOString();
+        setDiscoverResults((prev) =>
+          prev.map((job) =>
+            job.id === jobId ? { ...job, userAction: "remind_later", reminderAt } : job,
+          ),
+        );
       }
     } catch (error) {
       console.error("[SidePanel] Discover action error:", error);
-      alert("Error al realizar la acción: " + (error instanceof Error ? error.message : "Desconocido"));
+      setDiscoverError(error instanceof Error ? error.message : "No se pudo completar la acción");
     }
   }
 
   function useHistoryQuery(query: string) {
     setDiscoverQuery(query);
     setShowHistory(false);
-    runDiscoverSearch(true);
+    void runDiscoverSearch(true, query);
   }
 
   // Load history on mount
@@ -358,9 +407,13 @@ export function SidePanelApp() {
 
               {capture.stage === "loading" && <Spinner label="Leyendo la pestaña…" />}
 
-              {capture.stage === "empty" && <p className="text-xs text-slate-500">{capture.message}</p>}
+              {capture.stage === "empty" && (
+                <p className="text-xs text-slate-500">{capture.message}</p>
+              )}
 
-              {capture.stage === "error" && <p className="text-xs text-rose-600">{capture.message}</p>}
+              {capture.stage === "error" && (
+                <p className="text-xs text-rose-600">{capture.message}</p>
+              )}
 
               {capture.stage === "saved" && (
                 <div className="space-y-2">
@@ -388,7 +441,8 @@ export function SidePanelApp() {
 
                   {capture.duplicate && (
                     <p className="rounded-lg bg-amber-50 px-2 py-1.5 text-[11px] text-amber-800">
-                      Ya tienes esta oferta guardada. Puedes actualizar su estado o guardarla de nuevo.
+                      Ya tienes esta oferta guardada. Puedes actualizar su estado o guardarla de
+                      nuevo.
                     </p>
                   )}
 
@@ -494,20 +548,25 @@ export function SidePanelApp() {
               ) : (
                 <ul className="space-y-1">
                   {reminders.map((reminder) => {
-                    const application = applications.find((item) => item.id === reminder.applicationId);
+                    const application = applications.find(
+                      (item) => item.id === reminder.applicationId,
+                    );
                     const overdue = new Date(reminder.dueAt).getTime() < Date.now();
                     return (
                       <li key={reminder.id}>
                         <button
                           type="button"
                           onClick={() =>
-                            application && void openDashboard(`/dashboard.html?app=${application.id}`)
+                            application &&
+                            void openDashboard(`/dashboard.html?app=${application.id}`)
                           }
                           className="flex w-full items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-left hover:border-brand-300"
                         >
                           <CalendarClock
                             size={13}
-                            className={overdue ? "shrink-0 text-rose-500" : "shrink-0 text-amber-500"}
+                            className={
+                              overdue ? "shrink-0 text-rose-500" : "shrink-0 text-amber-500"
+                            }
                           />
                           <span className="min-w-0 flex-1">
                             <span className="block truncate text-[11px] font-medium text-slate-700">
@@ -539,7 +598,10 @@ export function SidePanelApp() {
               <div className="space-y-2">
                 <div className="flex gap-2">
                   <div className="flex-1 relative">
-                    <Search className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                    <Search
+                      className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400"
+                      size={16}
+                    />
                     <input
                       type="text"
                       value={discoverQuery}
@@ -549,8 +611,19 @@ export function SidePanelApp() {
                       className="w-full pl-8 pr-4 py-2 rounded-lg border border-slate-300 text-sm outline-none focus:border-brand-500"
                     />
                   </div>
-                  <Button size="sm" onClick={() => runDiscoverSearch(true)} disabled={discoverLoading || !discoverQuery.trim()}>
-                    {discoverLoading ? <Spinner label="Buscando…" /> : "Buscar"}
+                  <Button
+                    size="sm"
+                    onClick={() => void runDiscoverSearch(true)}
+                    disabled={discoverLoading || !discoverQuery.trim()}
+                  >
+                    {discoverLoading ? (
+                      <span className="flex items-center gap-1.5">
+                        <span className="h-3 w-3 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                        Buscando…
+                      </span>
+                    ) : (
+                      "Buscar"
+                    )}
                   </Button>
                 </div>
 
@@ -573,7 +646,12 @@ export function SidePanelApp() {
                   <input
                     type="text"
                     value={discoverFilters.location || ""}
-                    onChange={(e) => setDiscoverFilters({ ...discoverFilters, location: e.target.value || undefined })}
+                    onChange={(e) =>
+                      setDiscoverFilters({
+                        ...discoverFilters,
+                        location: e.target.value || undefined,
+                      })
+                    }
                     placeholder="Ubicación (ej: Bogotá, Medellín, Remoto)"
                     className="px-2 py-1 rounded border border-slate-300 text-slate-700 min-w-[140px]"
                   />
@@ -584,7 +662,10 @@ export function SidePanelApp() {
                       const value = e.target.value;
                       setDiscoverFilters({
                         ...discoverFilters,
-                        workMode: (value === "remote" || value === "hybrid" || value === "onsite") ? value : undefined,
+                        workMode:
+                          value === "remote" || value === "hybrid" || value === "onsite"
+                            ? value
+                            : undefined,
                       });
                     }}
                     className="px-2 py-1 rounded border border-slate-300 bg-white text-slate-700"
@@ -597,7 +678,12 @@ export function SidePanelApp() {
 
                   <select
                     value={discoverFilters.postedWithinDays || ""}
-                    onChange={(e) => setDiscoverFilters({ ...discoverFilters, postedWithinDays: e.target.value ? parseInt(e.target.value) : undefined })}
+                    onChange={(e) =>
+                      setDiscoverFilters({
+                        ...discoverFilters,
+                        postedWithinDays: e.target.value ? parseInt(e.target.value) : undefined,
+                      })
+                    }
                     className="px-2 py-1 rounded border border-slate-300 bg-white text-slate-700"
                   >
                     <option value="">Cualquier fecha</option>
@@ -651,6 +737,17 @@ export function SidePanelApp() {
               </div>
             )}
 
+            {discoverWarnings.length > 0 && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-800">
+                <p className="font-medium">Algunos portales no respondieron:</p>
+                <ul className="mt-1 list-disc space-y-0.5 pl-4">
+                  {discoverWarnings.map((warning, index) => (
+                    <li key={index}>{warning}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
             {discoverResults.length === 0 && !discoverLoading && !discoverError && (
               <div className="rounded-lg border border-dashed border-slate-300 bg-white px-4 py-6 text-center text-sm text-slate-400">
                 {discoverQuery
@@ -668,7 +765,9 @@ export function SidePanelApp() {
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm font-semibold text-slate-800 truncate">{job.jobTitle}</p>
+                        <p className="text-sm font-semibold text-slate-800 truncate">
+                          {job.jobTitle}
+                        </p>
                         <p className="text-xs text-slate-500 truncate">{job.company}</p>
                         <div className="flex flex-wrap items-center gap-1.5 mt-1">
                           {job.location && (
@@ -678,7 +777,12 @@ export function SidePanelApp() {
                           )}
                           {job.workMode && (
                             <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] bg-brand-50 text-brand-700">
-                              {job.workMode === "remote" ? "🏠" : job.workMode === "hybrid" ? "🔄" : "🏢"} {job.workMode}
+                              {job.workMode === "remote"
+                                ? "🏠"
+                                : job.workMode === "hybrid"
+                                  ? "🔄"
+                                  : "🏢"}{" "}
+                              {job.workMode}
                             </span>
                           )}
                           <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] bg-emerald-50 text-emerald-700">
@@ -747,15 +851,17 @@ export function SidePanelApp() {
                   </div>
                 )}
 
-                {discoverResults.length > 0 && !discoverLoading && (
-                  <button
-                    type="button"
-                    onClick={loadMoreDiscover}
-                    className="w-full px-3 py-2 text-sm font-medium text-brand-600 hover:bg-brand-50 rounded-lg border border-brand-200"
-                  >
-                    Cargar más ({discoverResults.length} de {discoverTotal})
-                  </button>
-                )}
+                {discoverResults.length > 0 &&
+                  !discoverLoading &&
+                  discoverResults.length < discoverTotal && (
+                    <button
+                      type="button"
+                      onClick={() => void loadMoreDiscover()}
+                      className="w-full px-3 py-2 text-sm font-medium text-brand-600 hover:bg-brand-50 rounded-lg border border-brand-200"
+                    >
+                      Cargar más ({discoverResults.length} de {discoverTotal})
+                    </button>
+                  )}
               </div>
             )}
           </div>

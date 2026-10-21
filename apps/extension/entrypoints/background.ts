@@ -163,6 +163,16 @@ export default defineBackground(() => {
 
   browser.runtime.onMessage.addListener((message: unknown, sender, sendResponse) => {
     const request = message as BackgroundRequest;
+    const type = request?.type;
+
+    // Solo respondemos mensajes dirigidos al background. Los content
+    // scripts tienen sus propios listeners para la captura.
+    if (
+      typeof type !== "string" ||
+      (!type.startsWith("postulia:") && !type.startsWith("discovery:"))
+    ) {
+      return false;
+    }
 
     const respond = async (): Promise<unknown> => {
       switch (request?.type) {
@@ -216,6 +226,8 @@ export default defineBackground(() => {
             query: request.query,
             filters: request.filters,
             source: request.source,
+            page: request.page,
+            pageSize: request.pageSize,
           });
           return result;
         }
@@ -265,12 +277,23 @@ export default defineBackground(() => {
           return { ok: true };
         }
 
+        case "discovery:run-alerts": {
+          return discoveryService.runAlerts();
+        }
+
         default:
           return undefined;
       }
     };
 
-    void respond().then(sendResponse);
+    void respond()
+      .then((result) => {
+        sendResponse(result === undefined ? { error: "Acción no soportada" } : result);
+      })
+      .catch((error: unknown) => {
+        console.error(`[Postulia] Error en ${type}:`, error);
+        sendResponse({ error: error instanceof Error ? error.message : "Error interno" });
+      });
     return true;
   });
 

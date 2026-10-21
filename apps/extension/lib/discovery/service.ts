@@ -1,14 +1,33 @@
-import { browser } from "wxt/browser";
-import { nowIso, addDays, type Source, type SearchFilters, type DiscoveredJob, type SearchHistory, type SearchAlert, type DiscoveryAction, type DiscoverySearchResult } from "@postulia/shared";
+import {
+  nowIso,
+  addDays,
+  type Source,
+  type SearchFilters,
+  type DiscoveredJob,
+  type SearchHistory,
+  type SearchAlert,
+  type DiscoveryAction,
+  type DiscoverySearchResult,
+} from "@postulia/shared";
 import { db } from "~/lib/db";
 import { discoveryQueue, cleanupDiscoveredJobs } from "./queue.js";
 import { scrapeLinkedIn } from "./linkedin.js";
 import { scrapeSource } from "./scrapers.js";
-import type { ScrapedJob } from "./scrapers.js";
+import type { ScrapedJob, ScraperResult } from "./scrapers.js";
 import { newId } from "@postulia/shared";
 
 const MAX_PAGES_PER_SEARCH = 3;
 const DEFAULT_EXPIRY_DAYS = 30;
+
+const SOURCE_LABELS: Record<Source, string> = {
+  linkedin: "LinkedIn",
+  indeed: "Indeed",
+  computrabajo: "Computrabajo",
+  bumeran: "Bumeran",
+  getonbrd: "Get on Board",
+  torre: "Torre",
+  other: "Otro portal",
+};
 
 export interface DiscoverySearchParams {
   query: string;
@@ -59,23 +78,36 @@ export class DiscoveryService {
         resultCount: 0,
       });
 
-      const allJobs: DiscoveredJob[] = [];
+      // Buscar en paralelo: cada portal tiene su propio rate limit y un fallo
+      // en uno no debe impedir que los demás devuelvan resultados.
+      const settled = await Promise.allSettled(
+        sources.map((src) => this.scrapeWithQueue(query, filters, src)),
+      );
 
-      for (const src of sources) {
+      const warnings: string[] = [];
+      const allJobs: DiscoveredJob[] = [];
+      const seenIds = new Set<string>();
+
+      for (let index = 0; index < settled.length; index++) {
         if (controller.signal.aborted) break;
 
-        if (src === "linkedin") {
-          const result = await this.scrapeLinkedInWithQueue(query, filters, src);
-          for (const job of result.jobs) {
-            const saved = await this.putDiscoveredJob(job, query);
-            allJobs.push(saved);
-          }
-        } else {
-          const result = await this.scrapeSourceWithQueue(query, filters, src);
-          for (const job of result.jobs) {
-            const saved = await this.putDiscoveredJob(job, query);
-            allJobs.push(saved);
-          }
+        const outcome = settled[index];
+        const src = sources[index];
+        if (!outcome || !src) continue;
+
+        if (outcome.status === "rejected") {
+          const message =
+            outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason);
+          warnings.push(`${SOURCE_LABELS[src]}: ${message}`);
+          console.error("[DiscoveryService] Error scraping", src, outcome.reason);
+          continue;
+        }
+
+        for (const job of outcome.value) {
+          const saved = await this.putDiscoveredJob(job, query);
+          if (seenIds.has(saved.id)) continue;
+          seenIds.add(saved.id);
+          allJobs.push(saved);
         }
       }
 
@@ -90,6 +122,7 @@ export class DiscoveryService {
         page,
         pageSize,
         hasMore: start + pageSize < allJobs.length,
+        ...(warnings.length > 0 ? { warnings } : {}),
       };
     } finally {
       this.runningSearches.delete(searchId);
@@ -120,12 +153,17 @@ export class DiscoveryService {
       collection = collection.filter((job) => job.workMode === params.filters!.workMode);
     }
     if (params.filters?.postedWithinDays) {
-      const cutoff = new Date(Date.now() - params.filters!.postedWithinDays! * 86_400_000).toISOString();
+      const cutoff = new Date(
+        Date.now() - params.filters!.postedWithinDays! * 86_400_000,
+      ).toISOString();
       collection = collection.filter((job) => (job.postedAt ?? job.scrapedAt) >= cutoff);
     }
 
     const total = await collection.count();
-    const jobs = await collection.offset((params.page - 1) * params.pageSize).limit(params.pageSize).toArray();
+    const jobs = await collection
+      .offset((params.page - 1) * params.pageSize)
+      .limit(params.pageSize)
+      .toArray();
 
     return {
       jobs,
@@ -143,24 +181,7 @@ export class DiscoveryService {
 
     switch (params.action) {
       case "save": {
-        const { createApplication } = await import("~/lib/repository.js");
-        await createApplication({
-          jobTitle: job.jobTitle,
-          company: job.company,
-          url: job.url,
-          source: job.source,
-          location: job.location,
-          workMode: job.workMode,
-          salary: job.salary,
-          currency: job.currency,
-          status: "saved",
-          appliedAt: null,
-          notes: `Descubierta via búsqueda: ${job.searchQuery}`,
-          recruiterName: null,
-          recruiterContact: null,
-          cvVersion: null,
-          tags: [],
-        });
+        await this.saveJobAsApplication(job);
         await db.jobDiscoveries.update(job.id, { userAction: "saved" });
         break;
       }
@@ -171,8 +192,11 @@ export class DiscoveryService {
       case "remind_later": {
         const days = params.reminderDays ?? 3;
         const dueAt = addDays(nowIso(), days).toISOString();
+        // Los recordatorios se guardan contra una postulación, no contra la
+        // oferta descubierta. Creamos (o reutilizamos) la postulación primero.
+        const application = await this.saveJobAsApplication(job);
         const { addReminder } = await import("~/lib/repository.js");
-        await addReminder(job.id, {
+        await addReminder(application.id, {
           dueAt,
           message: `Recordar postular a: ${job.jobTitle} en ${job.company}`,
         });
@@ -188,7 +212,9 @@ export class DiscoveryService {
   }
 
   /** Crea alerta de búsqueda. */
-  async createAlert(alert: Omit<SearchAlert, "id" | "createdAt" | "lastRunAt">): Promise<SearchAlert> {
+  async createAlert(
+    alert: Omit<SearchAlert, "id" | "createdAt" | "lastRunAt">,
+  ): Promise<SearchAlert> {
     const newAlert: SearchAlert = {
       ...alert,
       id: newId(),
@@ -215,7 +241,7 @@ export class DiscoveryService {
 
   /** Ejecuta todas las alertas habilitadas (se llama desde alarma diaria). */
   async runAlerts(): Promise<{ alertsRun: number; newJobs: number }> {
-    const alerts = await db.searchAlerts.where("enabled").equals(1 as const).toArray();
+    const alerts = await db.searchAlerts.filter((alert) => alert.enabled).toArray();
     let newJobsTotal = 0;
 
     for (const alert of alerts) {
@@ -253,46 +279,65 @@ export class DiscoveryService {
     return all;
   }
 
-  private async scrapeSourceWithQueue(query: string, filters: SearchFilters, source: Source): Promise<{ jobs: DiscoveredJob[] }> {
-    const allJobs: DiscoveredJob[] = [];
+  /**
+   * Scrapea un portal (hasta MAX_PAGES_PER_SEARCH) respetando la cola.
+   * Devuelve ofertas crudas; la persistencia se hace en `search()`.
+   */
+  private async scrapeWithQueue(
+    query: string,
+    filters: SearchFilters,
+    source: Source,
+  ): Promise<ScrapedJob[]> {
+    const allJobs: ScrapedJob[] = [];
+    const maxPages =
+      source === "linkedin" || source === "indeed" || source === "computrabajo"
+        ? MAX_PAGES_PER_SEARCH
+        : 1;
 
-    for (let page = 0; page < MAX_PAGES_PER_SEARCH; page++) {
-      const result = await discoveryQueue.enqueue<{ jobs: ScrapedJob[]; hasMore: boolean }>(source, () =>
-        scrapeSource(source, query, filters.location || "", page)
+    for (let page = 0; page < maxPages; page++) {
+      const result = await discoveryQueue.enqueue<ScraperResult>(
+        source,
+        () =>
+          source === "linkedin"
+            ? scrapeLinkedIn(query, filters, page)
+            : scrapeSource(source, query, filters, page),
+        // Un timeout de LinkedIn no se arregla reintentando: evita 3 esperas de 20s.
+        { retries: source === "linkedin" ? 0 : 2 },
       );
 
-      if (result.jobs.length === 0) break;
+      if (!result || !Array.isArray(result.jobs) || result.jobs.length === 0) break;
 
-      for (const job of result.jobs) {
-        const saved = await this.putDiscoveredJob(job, query);
-        allJobs.push(saved);
-      }
-
+      allJobs.push(...result.jobs);
       if (!result.hasMore) break;
     }
 
-    return { jobs: allJobs };
+    return allJobs;
   }
 
-  private async scrapeLinkedInWithQueue(query: string, filters: SearchFilters, source: Source): Promise<{ jobs: DiscoveredJob[] }> {
-    const allJobs: DiscoveredJob[] = [];
+  /** Crea la postulación asociada a una oferta descubierta (idempotente por URL). */
+  private async saveJobAsApplication(job: DiscoveredJob) {
+    const { createApplication, findDuplicateByUrl } = await import("~/lib/repository.js");
 
-    for (let page = 0; page < MAX_PAGES_PER_SEARCH; page++) {
-      const result = await discoveryQueue.enqueue<{ jobs: ScrapedJob[]; hasMore: boolean }>(source, () =>
-        scrapeLinkedIn(query, filters.location || "", page)
-      );
+    const existing = await findDuplicateByUrl(job.url);
+    if (existing) return existing;
 
-      if (result.jobs.length === 0) break;
-
-      for (const job of result.jobs) {
-        const saved = await this.putDiscoveredJob(job, query);
-        allJobs.push(saved);
-      }
-
-      if (!result.hasMore) break;
-    }
-
-    return { jobs: allJobs };
+    return createApplication({
+      jobTitle: job.jobTitle,
+      company: job.company,
+      url: job.url,
+      source: job.source,
+      location: job.location,
+      workMode: job.workMode,
+      salary: job.salary,
+      currency: job.currency,
+      status: "saved",
+      appliedAt: null,
+      notes: `Descubierta via búsqueda: ${job.searchQuery}`,
+      recruiterName: null,
+      recruiterContact: null,
+      cvVersion: null,
+      tags: [],
+    });
   }
 
   private async putDiscoveredJob(job: ScrapedJob, searchQuery: string): Promise<DiscoveredJob> {
@@ -308,7 +353,9 @@ export class DiscoveryService {
       expiresAt,
     };
 
-    const { putDiscoveredJob: putJob } = await import("./queue.js") as { putDiscoveredJob: (job: Omit<DiscoveredJob, "id">) => Promise<DiscoveredJob> };
+    const { putDiscoveredJob: putJob } = (await import("./queue.js")) as {
+      putDiscoveredJob: (job: Omit<DiscoveredJob, "id">) => Promise<DiscoveredJob>;
+    };
     return putJob(fullJob);
   }
 
@@ -317,12 +364,7 @@ export class DiscoveryService {
   }
 
   private async updateSearchHistoryResultCount(query: string, count: number): Promise<void> {
-    const history = await db.searchHistory
-      .where("query")
-      .equals(query)
-      .reverse()
-      .limit(1)
-      .first();
+    const history = await db.searchHistory.where("query").equals(query).reverse().limit(1).first();
     if (history) {
       await db.searchHistory.update(history.id, { resultCount: count });
     }

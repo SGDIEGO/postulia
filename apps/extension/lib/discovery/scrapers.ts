@@ -1,5 +1,5 @@
 import * as cheerio from "cheerio";
-import { newId, nowIso, addDays, type Source, type WorkMode } from "@postulia/shared";
+import type { SearchFilters, Source, WorkMode } from "@postulia/shared";
 import { hashJobUrl } from "./queue.js";
 
 export interface ScrapedJob {
@@ -37,7 +37,12 @@ function normalizeSalary(text: string | undefined): { salary?: string; currency?
 function detectWorkMode(text: string | undefined): WorkMode | undefined {
   if (!text) return undefined;
   const lower = text.toLowerCase();
-  if (lower.includes("remoto") || lower.includes("remote") || lower.includes("teletrabajo") || lower.includes("home office")) {
+  if (
+    lower.includes("remoto") ||
+    lower.includes("remote") ||
+    lower.includes("teletrabajo") ||
+    lower.includes("home office")
+  ) {
     return "remote";
   }
   if (lower.includes("hibrido") || lower.includes("híbrido") || lower.includes("hybrid")) {
@@ -53,8 +58,9 @@ function detectWorkMode(text: string | undefined): WorkMode | undefined {
 async function fetchHtml(url: string, headers: Record<string, string> = {}): Promise<string> {
   const response = await fetch(url, {
     headers: {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
       "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
       ...headers,
     },
@@ -62,7 +68,9 @@ async function fetchHtml(url: string, headers: Record<string, string> = {}): Pro
   });
 
   if (!response.ok) {
-    const error = new Error(`HTTP ${response.status}: ${response.statusText}`) as Error & { status: number };
+    const error = new Error(`HTTP ${response.status}: ${response.statusText}`) as Error & {
+      status: number;
+    };
     error.status = response.status;
     throw error;
   }
@@ -71,14 +79,20 @@ async function fetchHtml(url: string, headers: Record<string, string> = {}): Pro
 }
 
 /** Scraper para Indeed. */
-export async function scrapeIndeed(query: string, location: string, page: number = 0): Promise<ScraperResult> {
+export async function scrapeIndeed(
+  query: string,
+  filters: SearchFilters,
+  page: number = 0,
+): Promise<ScraperResult> {
   const baseUrl = "https://co.indeed.com/jobs";
+  const days =
+    filters.postedWithinDays && filters.postedWithinDays > 0 ? filters.postedWithinDays : 7;
   const params = new URLSearchParams({
     q: query,
-    l: location,
+    l: filters.location ?? "",
     start: String(page * 10),
     sort: "date",
-    fromage: "7", // últimos 7 días
+    fromage: String(days),
   });
   const url = `${baseUrl}?${params.toString()}`;
 
@@ -96,13 +110,17 @@ export async function scrapeIndeed(query: string, location: string, page: number
     const titleEl = $el.find("h2 a span, h2 span[title]").first();
     const title = titleEl.attr("title") || titleEl.text().trim();
 
-    const companyEl = $el.find("[data-testid='company-name'], .companyName, [data-company-name]").first();
+    const companyEl = $el
+      .find("[data-testid='company-name'], .companyName, [data-company-name]")
+      .first();
     const company = companyEl.text().trim();
 
     const locationEl = $el.find("[data-testid='job-location'], .companyLocation").first();
     const location = locationEl.text().trim();
 
-    const salaryEl = $el.find("[data-testid='attribute_snippet_testid'], .salary-snippet, .estimated-salary").first();
+    const salaryEl = $el
+      .find("[data-testid='attribute_snippet_testid'], .salary-snippet, .estimated-salary")
+      .first();
     const { salary, currency } = normalizeSalary(salaryEl.text());
 
     const snippetEl = $el.find(".job-snippet, .summary").first();
@@ -136,12 +154,15 @@ export async function scrapeIndeed(query: string, location: string, page: number
 }
 
 /** Scraper para Computrabajo. */
-export async function scrapeComputrabajo(query: string, location: string, page: number = 1): Promise<ScraperResult> {
+export async function scrapeComputrabajo(
+  query: string,
+  _filters: SearchFilters,
+  page: number = 1,
+): Promise<ScraperResult> {
   const baseUrl = "https://co.computrabajo.com/ofertas-de-trabajo/";
   const params = new URLSearchParams({
     q: query,
     p: String(page),
-    // location se maneja en la URL path en Computrabajo
   });
   const url = `${baseUrl}?${params.toString()}`;
 
@@ -204,7 +225,11 @@ export async function scrapeComputrabajo(query: string, location: string, page: 
 }
 
 /** Scraper genérico para portales con JSON-LD en listado. */
-export async function scrapeJsonLdList(url: string, source: Source, page: number): Promise<ScraperResult> {
+export async function scrapeJsonLdList(
+  url: string,
+  source: Source,
+  page: number,
+): Promise<ScraperResult> {
   const html = await fetchHtml(url);
   const $ = cheerio.load(html);
 
@@ -225,7 +250,9 @@ export async function scrapeJsonLdList(url: string, source: Source, page: number
             const jobUrl = jobPosting.url || jobPosting["@id"];
             if (!jobUrl) continue;
 
-            const { salary, currency } = normalizeSalary(jobPosting.baseSalary?.value?.value?.toString());
+            const { salary, currency } = normalizeSalary(
+              jobPosting.baseSalary?.value?.value?.toString(),
+            );
 
             jobs.push({
               jobTitle: jobPosting.title || "Sin título",
@@ -233,7 +260,9 @@ export async function scrapeJsonLdList(url: string, source: Source, page: number
               url: jobUrl,
               source,
               location: jobPosting.jobLocation?.address?.addressLocality,
-              workMode: jobPosting.jobLocationType?.toString().includes("TELECOMMUTE") ? "remote" : undefined,
+              workMode: jobPosting.jobLocationType?.toString().includes("TELECOMMUTE")
+                ? "remote"
+                : undefined,
               salary,
               currency,
               postedAt: jobPosting.datePosted,
@@ -253,10 +282,13 @@ export async function scrapeJsonLdList(url: string, source: Source, page: number
 }
 
 /** Mapea source a función scraper. */
-export const SCRAPERS: Record<Source, (query: string, location: string, page: number) => Promise<ScraperResult>> = {
+export const SCRAPERS: Record<
+  Source,
+  (query: string, filters: SearchFilters, page: number) => Promise<ScraperResult>
+> = {
   indeed: scrapeIndeed,
   computrabajo: scrapeComputrabajo,
-  linkedin: async () => ({ jobs: [], hasMore: false }), // LinkedIn requiere offscreen, se maneja aparte
+  linkedin: async () => ({ jobs: [], hasMore: false }), // LinkedIn se maneja en linkedin.ts
   bumeran: async () => ({ jobs: [], hasMore: false }),
   getonbrd: async () => ({ jobs: [], hasMore: false }),
   torre: async () => ({ jobs: [], hasMore: false }),
@@ -267,12 +299,12 @@ export const SCRAPERS: Record<Source, (query: string, location: string, page: nu
 export async function scrapeSource(
   source: Source,
   query: string,
-  location: string,
-  page: number
+  filters: SearchFilters,
+  page: number,
 ): Promise<ScraperResult> {
   const scraper = SCRAPERS[source];
   if (!scraper) {
     return { jobs: [], hasMore: false };
   }
-  return scraper(query, location, page);
+  return scraper(query, filters, page);
 }

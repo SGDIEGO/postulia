@@ -64,4 +64,6 @@ export interface DiscoverySearchResult {
   page: number;
   pageSize: number;
   hasMore: boolean;
+  /** Portales que fallaron durante la búsqueda (la búsqueda sigue con el resto). */
+  warnings?: string[];
 }

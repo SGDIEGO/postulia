@@ -9,6 +9,7 @@ Postulia es **local-first**: los datos viven en IndexedDB (Dexie) y se sincroniz
 ## Características
 
 - **Captura desde la oferta**: botón flotante «Guardar en Postulia» en LinkedIn, Computrabajo, Indeed, Bumeran, Get on Board y Torre. En el resto de portales, el panel lateral inyecta el capturador bajo demanda (permiso `activeTab`) y usa JSON-LD/schema.org o heurísticas genéricas.
+- **Descubrimiento de ofertas**: busca desde el panel lateral con filtros de ubicación, modalidad, antigüedad y portal; guarda el historial, crea alertas y guarda ofertas como postulaciones. LinkedIn se consulta en una pestaña oculta temporal mediante los permisos de host de los seis portales.
 - **Alta manual** de cualquier postulación desde el dashboard.
 - **Pipeline** con estados: guardada, postulada, en revisión, entrevista, prueba técnica, oferta, rechazada, retirada; cada cambio queda en una línea de tiempo.
 - **Kanban** con arrastrar y soltar y **vista de lista** con filtros y búsqueda.
@@ -180,6 +181,7 @@ Todas las rutas (salvo auth y health) requieren `Authorization: Bearer <accessTo
 
 - No automatiza el envío de postulaciones.
 - La captura automática con botón flotante está garantizada en los seis portales declarados; en otros el panel lateral inyecta el capturador solo tras la invocación del usuario (permiso temporal `activeTab`). Si la página no expone JSON-LD ni metadatos reconocibles, usa el alta manual.
+- El descubrimiento depende de la estructura pública de cada portal. Si un portal cambia su HTML, exige iniciar sesión o bloquea peticiones automatizadas, puede devolver un aviso y el resto de portales sigue funcionando. Indeed y Computrabajo pueden responder 403; Bumeran, Get on Board y Torre aún no tienen scraper propio.
 - Las migraciones se ejecutan al desplegar; para desarrollo local necesitas una base PostgreSQL accesible.
 
 ## Licencia

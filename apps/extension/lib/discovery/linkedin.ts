@@ -1,180 +1,193 @@
 import { browser } from "wxt/browser";
+import type { SearchFilters } from "@postulia/shared";
 import type { ScrapedJob, ScraperResult } from "./scrapers.js";
-import { newId, nowIso, type Source, type WorkMode } from "@postulia/shared";
-import { hashJobUrl } from "./queue.js";
 
-const OFFSCREEN_URL = "/offscreen.js";
+const LINKEDIN_ORIGIN = "https://www.linkedin.com";
+const PAGE_LOAD_TIMEOUT_MS = 20_000;
+const RENDER_SETTLE_MS = 1_500;
+const JOBS_PER_PAGE = 25;
 
-/** Crea documento offscreen para LinkedIn. */
-async function ensureOffscreenDocument(): Promise<void> {
-  const existing = await browser.offscreen.hasDocument();
-  if (existing) return;
-
-  await browser.offscreen.createDocument({
-    url: browser.runtime.getURL(OFFSCREEN_URL),
-    reasons: ["DOM_PARSER"],
-    justification: "Scraping LinkedIn job listings (SPA requiere DOM real)",
+/** Construye la URL de búsqueda pública de LinkedIn. */
+export function buildLinkedInSearchUrl(
+  query: string,
+  filters: SearchFilters,
+  page: number,
+): string {
+  const params = new URLSearchParams({
+    keywords: query,
+    location: filters.location ?? "",
+    start: String(page * JOBS_PER_PAGE),
   });
 
-  // Esperar a que el documento esté listo
-  await new Promise((resolve) => setTimeout(resolve, 500));
+  if (filters.postedWithinDays && filters.postedWithinDays > 0) {
+    params.set("f_TPR", `r${Math.round(filters.postedWithinDays * 86_400)}`);
+  }
+
+  return `${LINKEDIN_ORIGIN}/jobs/search/?${params.toString()}`;
 }
 
-/** Inyecta script de scraping en offscreen document. */
-async function runLinkedInScraperInOffscreen(
-  query: string,
-  location: string,
-  page: number
-): Promise<ScraperResult> {
-  await ensureOffscreenDocument();
+/** Espera a que la pestaña termine de cargar (o falla por timeout). */
+async function waitForTabComplete(tabId: number, timeoutMs: number): Promise<void> {
+  const current = await browser.tabs.get(tabId);
+  if (current.status === "complete") return;
 
-  return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      reject(new Error("LinkedIn scraper timeout (30s)"));
-    }, 30_000);
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error(`LinkedIn tardó más de ${Math.round(timeoutMs / 1000)}s en cargar`));
+    }, timeoutMs);
 
-    const handleResponse = (response: { result?: ScraperResult; error?: string }) => {
-      clearTimeout(timeout);
-      browser.runtime.onMessage.removeListener(handleResponse);
-      if (response.error) {
-        reject(new Error(response.error));
-      } else {
-        resolve(response.result!);
-      }
+    const onUpdated = (updatedTabId: number, info: { status?: string }) => {
+      if (updatedTabId !== tabId || info.status !== "complete") return;
+      cleanup();
+      resolve();
     };
 
-    browser.runtime.onMessage.addListener(handleResponse);
+    const cleanup = () => {
+      clearTimeout(timer);
+      browser.tabs.onUpdated.removeListener(onUpdated);
+    };
 
-    browser.runtime.sendMessage({
-      type: "discovery:linkedin:scrape",
-      query,
-      location,
-      page,
-    });
+    browser.tabs.onUpdated.addListener(onUpdated);
   });
 }
 
-/** Handler en offscreen document (se registra en offscreen.js). */
-export async function handleLinkedInScrape(
+/**
+ * Scraper de LinkedIn.
+ *
+ * Se ejecuta en el service worker: abre una pestaña inactiva, espera a que
+ * LinkedIn pinte las tarjetas, inyecta el extractor y cierra la pestaña. El
+ * offscreen document no sirve para esto porque solo tiene acceso a runtime.
+ */
+export async function scrapeLinkedIn(
   query: string,
-  location: string,
-  page: number
+  filters: SearchFilters,
+  page: number = 0,
 ): Promise<ScraperResult> {
-  // Crear pestaña oculta para LinkedIn
-  const searchUrl = `https://www.linkedin.com/jobs/search/?keywords=${encodeURIComponent(query)}&location=${encodeURIComponent(location)}&f_TPR=r604800&start=${page * 25}`;
-
-  const tab = await browser.tabs.create({
-    url: searchUrl,
-    active: false,
-    pinned: true,
-  });
+  const searchUrl = buildLinkedInSearchUrl(query, filters, page);
+  let tabId: number | undefined;
 
   try {
-    // Esperar a que cargue
-    await new Promise((resolve) => setTimeout(resolve, 3000));
+    const tab = await browser.tabs.create({ url: searchUrl, active: false });
+    tabId = tab.id;
+    if (tabId === undefined) throw new Error("No se pudo abrir la pestaña de LinkedIn");
 
-    // Inyectar content script para extraer
+    await waitForTabComplete(tabId, PAGE_LOAD_TIMEOUT_MS);
+    // LinkedIn renderiza las tarjetas después de "complete".
+    await new Promise((resolve) => setTimeout(resolve, RENDER_SETTLE_MS));
+
     const results = await browser.scripting.executeScript({
-      target: { tabId: tab.id! },
+      target: { tabId },
       func: extractLinkedInJobs,
       args: [page],
     });
 
-    const jobs = results[0]?.result as ScrapedJob[] || [];
+    const jobs = Array.isArray(results[0]?.result) ? (results[0].result as ScrapedJob[]) : [];
 
-    return {
-      jobs,
-      hasMore: jobs.length >= 25,
-    };
+    if (jobs.length === 0) {
+      const finalTab = await browser.tabs.get(tabId).catch(() => null);
+      if (finalTab?.url && /\/(authwall|checkpoint|login)/.test(finalTab.url)) {
+        console.warn(
+          "[LinkedIn Scraper] LinkedIn pidió iniciar sesión; no hay ofertas para extraer.",
+        );
+      }
+    }
+
+    return { jobs, hasMore: jobs.length >= JOBS_PER_PAGE };
+  } catch (error) {
+    console.error("[LinkedIn Scraper] Error:", error);
+    return { jobs: [], hasMore: false };
   } finally {
-    // Cerrar pestaña
-    try {
-      await browser.tabs.remove(tab.id!);
-    } catch {}
+    if (tabId !== undefined) {
+      try {
+        await browser.tabs.remove(tabId);
+      } catch {
+        // La pestaña ya estaba cerrada.
+      }
+    }
   }
 }
 
-/** Función que se ejecuta en el contexto de la página LinkedIn. */
+/**
+ * Función que se ejecuta en el contexto de la página de LinkedIn.
+ *
+ * Debe ser autocontenida: `scripting.executeScript` la serializa y la ejecuta
+ * en la pestaña, por lo que no puede referenciar variables del módulo.
+ */
 function extractLinkedInJobs(page: number): ScrapedJob[] {
   const jobs: ScrapedJob[] = [];
+  const seenUrls = new Set<string>();
 
-  // Selectores de LinkedIn (pueden cambiar)
-  const jobCards = document.querySelectorAll(
-    "[data-job-id], .job-search-card, .jobs-search-results__list-item, li.jobs-search-results__list-item"
+  const cards = document.querySelectorAll<HTMLElement>(
+    "li.jobs-search-results__list-item, li.scaffold-layout__list-item, .job-search-card, [data-job-id]",
   );
 
-  jobCards.forEach((card, index) => {
+  cards.forEach((card, index) => {
     try {
-      // Título
-      const titleEl = card.querySelector(
-        "h3 a, .job-search-card__title a, [data-job-title]"
+      const titleEl = card.querySelector<HTMLElement>(
+        "a.job-card-container__link, .job-card-list__title, h3 a, .job-search-card__title a, .base-search-card__title, [data-job-title]",
       );
-      const title = titleEl?.textContent?.trim() || titleEl?.getAttribute("aria-label") || "";
+      const title = (titleEl?.textContent ?? titleEl?.getAttribute("aria-label") ?? "").trim();
 
-      // Empresa
-      const companyEl = card.querySelector(
-        "h4 a, .job-search-card__subtitle a, [data-company-name]"
+      const companyEl = card.querySelector<HTMLElement>(
+        ".job-card-container__company-name, .artdeco-entity-lockup__subtitle, h4 a, .job-search-card__subtitle a, .base-search-card__subtitle, [data-company-name]",
       );
-      const company = companyEl?.textContent?.trim() || "";
+      const company = (companyEl?.textContent ?? "").trim();
 
-      // URL
-      const linkEl = card.querySelector("a[data-job-id], .job-search-card__title a, h3 a");
-      const href = linkEl?.getAttribute("href") || "";
+      const linkEl = card.querySelector<HTMLAnchorElement>(
+        'a[href*="/jobs/view/"], a.job-card-container__link, a.base-card__full-link, h3 a',
+      );
+      const href = linkEl?.getAttribute("href") ?? "";
       const jobIdMatch = href.match(/\/jobs\/view\/(\d+)/);
-      const jobId = jobIdMatch?.[1] || linkEl?.getAttribute("data-job-id");
-      const url = jobId ? `https://www.linkedin.com/jobs/view/${jobId}/` : href;
+      const jobId =
+        jobIdMatch?.[1] ?? linkEl?.getAttribute("data-job-id") ?? card.getAttribute("data-job-id");
+      const url = jobId
+        ? `https://www.linkedin.com/jobs/view/${jobId}/`
+        : (href.split("?")[0] ?? "");
 
-      // Ubicación
-      const locationEl = card.querySelector(
-        ".job-search-card__location, [data-job-location], .job-result-card__location"
+      const locationEl = card.querySelector<HTMLElement>(
+        ".job-card-container__metadata-item, .job-search-card__location, .job-result-card__location, [data-job-location]",
       );
-      const location = locationEl?.textContent?.trim();
+      const location = (locationEl?.textContent ?? "").trim() || undefined;
 
-      // Modalidad
-      const workModeEl = card.querySelector(
-        ".job-search-card__work-type, [data-work-type], .job-result-card__work-type"
+      const workModeEl = card.querySelector<HTMLElement>(
+        ".job-search-card__workplace-type, .job-search-card__work-type, .job-result-card__work-type, [data-work-type]",
       );
-      const workModeText = workModeEl?.textContent?.trim();
+      const workModeText = (workModeEl?.textContent ?? "").toLowerCase();
       const workMode = workModeText
-        ? workModeText.toLowerCase().includes("remoto") || workModeText.toLowerCase().includes("remote")
+        ? workModeText.includes("remot")
           ? "remote"
-          : workModeText.toLowerCase().includes("hibrido") || workModeText.toLowerCase().includes("hybrid")
+          : workModeText.includes("hibrid") || workModeText.includes("hybrid")
             ? "hybrid"
-            : "onsite"
+            : workModeText.includes("presencial") || workModeText.includes("onsite")
+              ? "onsite"
+              : undefined
         : undefined;
 
-      if (title && company && url) {
-        jobs.push({
-          jobTitle: title,
-          company,
-          url,
-          source: "linkedin",
-          location,
-          workMode,
-          confidence: title && company && location ? "high" : "medium",
-          pageNumber: page,
-          positionInPage: index,
-        });
-      }
+      const dateEl = card.querySelector<HTMLTimeElement>(
+        "time[datetime], .job-search-card__listdate, .job-card-container__listdate",
+      );
+      const postedAt = dateEl?.getAttribute("datetime") ?? undefined;
+
+      if (!title || !company || !url || seenUrls.has(url)) return;
+
+      seenUrls.add(url);
+      jobs.push({
+        jobTitle: title,
+        company,
+        url,
+        source: "linkedin",
+        location,
+        workMode,
+        postedAt,
+        confidence: location ? "high" : "medium",
+        pageNumber: page,
+        positionInPage: index,
+      });
     } catch {
-      // Ignorar errores en tarjetas individuales
+      // Ignorar tarjetas individuales con datos incompletos.
     }
   });
 
   return jobs;
-}
-
-/** Scraper principal para LinkedIn usando offscreen. */
-export async function scrapeLinkedIn(
-  query: string,
-  location: string,
-  page: number = 0
-): Promise<ScraperResult> {
-  try {
-    return await runLinkedInScraperInOffscreen(query, location, page);
-  } catch (error) {
-    console.error("[LinkedIn Scraper] Error:", error);
-    // Fallback: intentar JSON-LD público si existe
-    return { jobs: [], hasMore: false };
-  }
 }
