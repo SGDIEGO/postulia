@@ -7,6 +7,7 @@ import {
   Check,
   LayoutDashboard,
   RefreshCw,
+  Search,
   Settings,
 } from "lucide-react";
 import {
@@ -14,6 +15,11 @@ import {
   formatDateEs,
   relativeTimeEs,
   type ApplicationStatus,
+  type Source,
+  type SearchFilters,
+  type DiscoveryAction,
+  type DiscoverySearchResult,
+  type DiscoveredJob,
 } from "@postulia/shared";
 import { StatusBadge } from "~/components/StatusBadge";
 import { Button, Spinner, cn } from "~/components/ui";
@@ -61,11 +67,31 @@ async function extractFromTab(tabId: number): Promise<ExtractedJobResult | null 
   }
 }
 
+type SidePanelTab = "capture" | "discover";
+
 export function SidePanelApp() {
+  const [activeTab, setActiveTab] = useState<SidePanelTab>("capture");
   const [capture, setCapture] = useState<CaptureState>({ stage: "loading" });
   const [status, setStatus] = useState<ApplicationStatus>("applied");
   const [notes, setNotes] = useState("");
   const [activeTabId, setActiveTabId] = useState<number | null>(null);
+  
+  // Discover state
+  const [discoverQuery, setDiscoverQuery] = useState("");
+  const [discoverFilters, setDiscoverFilters] = useState<SearchFilters>({
+    location: "Bogotá",
+    workMode: undefined,
+    postedWithinDays: 7,
+  });
+  const [discoverSource, setDiscoverSource] = useState<Source | "all">("all");
+  const [discoverResults, setDiscoverResults] = useState<DiscoveredJob[]>([]);
+  const [discoverLoading, setDiscoverLoading] = useState(false);
+  const [discoverError, setDiscoverError] = useState<string | null>(null);
+  const [discoverPage, setDiscoverPage] = useState(1);
+  const [discoverTotal, setDiscoverTotal] = useState(0);
+  const [discoverHistory, setDiscoverHistory] = useState<Array<{ query: string; executedAt: string; resultCount: number }>>([]);
+  const [showHistory, setShowHistory] = useState(false);
+
   const applications = useApplications() ?? [];
   const reminders = useReminders({ pendingOnly: true }).slice(0, 3);
   const { status: extensionStatus, syncing, syncNow } = useExtensionStatus(10_000);
@@ -160,6 +186,98 @@ export function SidePanelApp() {
     await browser.tabs.create({ url: browser.runtime.getURL(path) });
   }
 
+  // --- Discover functions ---
+  async function loadDiscoverHistory() {
+    try {
+      const history = await sendMessage<Array<{ query: string; executedAt: string; resultCount: number }>>({
+        type: "discovery:history",
+      });
+      setDiscoverHistory(history.slice(0, 10));
+    } catch (error) {
+      console.error("[SidePanel] Error loading discover history:", error);
+    }
+  }
+
+  async function runDiscoverSearch(isNewSearch = true) {
+    setDiscoverLoading(true);
+    setDiscoverError(null);
+    if (isNewSearch) {
+      setDiscoverPage(1);
+      setDiscoverResults([]);
+      setDiscoverTotal(0);
+    }
+
+    try {
+      const result = await sendMessage<{ jobs: DiscoveredJob[]; total: number; page: number; pageSize: number; hasMore: boolean }>({
+        type: "discovery:search",
+        query: discoverQuery.trim(),
+        filters: discoverFilters,
+        source: discoverSource === "all" ? undefined : discoverSource,
+      });
+
+      setDiscoverResults(result.jobs);
+      setDiscoverTotal(result.total);
+      setDiscoverPage(result.page);
+      setDiscoverError(null);
+
+      // Refresh history
+      loadDiscoverHistory();
+    } catch (error) {
+      setDiscoverError(error instanceof Error ? error.message : "Error al buscar ofertas");
+      console.error("[SidePanel] Discover search error:", error);
+    } finally {
+      setDiscoverLoading(false);
+    }
+  }
+
+  async function loadMoreDiscover() {
+    const nextPage = discoverPage + 1;
+    setDiscoverLoading(true);
+    try {
+      const result = await sendMessage<{ jobs: DiscoveredJob[]; total: number; page: number; pageSize: number; hasMore: boolean }>({
+        type: "discovery:list",
+        query: discoverQuery.trim() || undefined,
+        filters: discoverFilters,
+        source: discoverSource === "all" ? undefined : discoverSource,
+        page: nextPage,
+        pageSize: 20,
+      });
+
+      setDiscoverResults(prev => [...prev, ...result.jobs]);
+      setDiscoverTotal(result.total);
+      setDiscoverPage(result.page);
+    } catch (error) {
+      console.error("[SidePanel] Load more error:", error);
+    } finally {
+      setDiscoverLoading(false);
+    }
+  }
+
+  async function handleDiscoverAction(jobId: string, action: "save" | "dismiss" | "remind_later") {
+    try {
+      await sendMessage({ type: "discovery:action", jobId, action });
+      // Refresh results to show updated state
+      if (action === "save" || action === "dismiss") {
+        setDiscoverResults(prev => prev.filter(j => j.id !== jobId));
+        setDiscoverTotal(prev => prev - 1);
+      }
+    } catch (error) {
+      console.error("[SidePanel] Discover action error:", error);
+      alert("Error al realizar la acción: " + (error instanceof Error ? error.message : "Desconocido"));
+    }
+  }
+
+  function useHistoryQuery(query: string) {
+    setDiscoverQuery(query);
+    setShowHistory(false);
+    runDiscoverSearch(true);
+  }
+
+  // Load history on mount
+  useEffect(() => {
+    loadDiscoverHistory();
+  }, []);
+
   const pending = extensionStatus?.pending ?? 0;
 
   return (
@@ -194,194 +312,454 @@ export function SidePanelApp() {
         </div>
       </header>
 
-      <main className="flex-1 space-y-3 overflow-y-auto p-2 sm:p-3">
-        <section className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-          <div className="mb-2 flex items-center justify-between">
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Capturar oferta
-            </h2>
-            <button
-              type="button"
-              onClick={() => void detect()}
-              className="text-[11px] font-medium text-brand-600 hover:underline"
-            >
-              Volver a detectar
-            </button>
-          </div>
+      {/* Tabs */}
+      <div className="flex border-b border-slate-200 bg-white px-2">
+        {(["capture", "discover"] as SidePanelTab[]).map((tab) => (
+          <button
+            key={tab}
+            type="button"
+            onClick={() => setActiveTab(tab)}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors",
+              activeTab === tab
+                ? "text-brand-600 border-brand-600"
+                : "text-slate-500 hover:text-slate-700 hover:border-slate-300",
+            )}
+          >
+            {tab === "capture" ? (
+              <>
+                <Search size={14} /> Capturar
+              </>
+            ) : (
+              <>
+                <Search size={14} /> Descubrir
+              </>
+            )}
+          </button>
+        ))}
+      </div>
 
-          {capture.stage === "loading" && <Spinner label="Leyendo la pestaña…" />}
-
-          {capture.stage === "empty" && <p className="text-xs text-slate-500">{capture.message}</p>}
-
-          {capture.stage === "error" && <p className="text-xs text-rose-600">{capture.message}</p>}
-
-          {capture.stage === "saved" && (
-            <div className="space-y-2">
-              <p className="flex items-start gap-1.5 rounded-lg bg-emerald-50 px-2 py-1.5 text-xs text-emerald-800">
-                <Check size={14} className="mt-0.5 shrink-0" />
-                Guardado: {capture.title}
-              </p>
-              <Button size="sm" className="w-full" onClick={() => void openDashboard()}>
-                <LayoutDashboard size={14} /> Abrir Postulia
-              </Button>
-            </div>
-          )}
-
-          {capture.stage === "ready" && (
-            <div className="space-y-2">
-              <div>
-                <p className="text-sm font-semibold leading-tight text-slate-800">
-                  {capture.job.jobTitle ?? "Oferta sin título"}
-                </p>
-                <p className="text-xs text-slate-500">
-                  {capture.job.company ?? "Empresa sin especificar"}
-                  {capture.job.location ? ` · ${capture.job.location}` : ""}
-                </p>
+      <main className="flex-1 overflow-y-auto p-2 sm:p-3">
+        {activeTab === "capture" && (
+          <div>
+            <section className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+              <div className="mb-2 flex items-center justify-between">
+                <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Capturar oferta
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => void detect()}
+                  className="text-[11px] font-medium text-brand-600 hover:underline"
+                >
+                  Volver a detectar
+                </button>
               </div>
 
-              {capture.duplicate && (
-                <p className="rounded-lg bg-amber-50 px-2 py-1.5 text-[11px] text-amber-800">
-                  Ya tienes esta oferta guardada. Puedes actualizar su estado o guardarla de nuevo.
-                </p>
+              {capture.stage === "loading" && <Spinner label="Leyendo la pestaña…" />}
+
+              {capture.stage === "empty" && <p className="text-xs text-slate-500">{capture.message}</p>}
+
+              {capture.stage === "error" && <p className="text-xs text-rose-600">{capture.message}</p>}
+
+              {capture.stage === "saved" && (
+                <div className="space-y-2">
+                  <p className="flex items-start gap-1.5 rounded-lg bg-emerald-50 px-2 py-1.5 text-xs text-emerald-800">
+                    <Check size={14} className="mt-0.5 shrink-0" />
+                    Guardado: {capture.title}
+                  </p>
+                  <Button size="sm" className="w-full" onClick={() => void openDashboard()}>
+                    <LayoutDashboard size={14} /> Abrir Postulia
+                  </Button>
+                </div>
               )}
 
-              <div>
-                <p className="mb-1 text-[11px] font-medium text-slate-500">Estado</p>
-                <div className="flex flex-wrap gap-1">
-                  {(["saved", "applied", "screening", "interview"] as ApplicationStatus[]).map(
-                    (option) => (
-                      <button
-                        key={option}
-                        type="button"
-                        onClick={() => setStatus(option)}
-                        className={cn(
-                          "rounded-full px-2.5 py-1 text-xs font-medium whitespace-nowrap",
-                          status === option
-                            ? "bg-brand-600 text-white"
-                            : "bg-slate-100 text-slate-600 hover:bg-slate-200",
-                        )}
-                      >
-                        {STATUS_LABELS[option]}
-                      </button>
-                    ),
+              {capture.stage === "ready" && (
+                <div className="space-y-2">
+                  <div>
+                    <p className="text-sm font-semibold leading-tight text-slate-800">
+                      {capture.job.jobTitle ?? "Oferta sin título"}
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      {capture.job.company ?? "Empresa sin especificar"}
+                      {capture.job.location ? ` · ${capture.job.location}` : ""}
+                    </p>
+                  </div>
+
+                  {capture.duplicate && (
+                    <p className="rounded-lg bg-amber-50 px-2 py-1.5 text-[11px] text-amber-800">
+                      Ya tienes esta oferta guardada. Puedes actualizar su estado o guardarla de nuevo.
+                    </p>
                   )}
+
+                  <div>
+                    <p className="mb-1 text-[11px] font-medium text-slate-500">Estado</p>
+                    <div className="flex flex-wrap gap-1">
+                      {(["saved", "applied", "screening", "interview"] as ApplicationStatus[]).map(
+                        (option) => (
+                          <button
+                            key={option}
+                            type="button"
+                            onClick={() => setStatus(option)}
+                            className={cn(
+                              "rounded-full px-2.5 py-1 text-xs font-medium whitespace-nowrap",
+                              status === option
+                                ? "bg-brand-600 text-white"
+                                : "bg-slate-100 text-slate-600 hover:bg-slate-200",
+                            )}
+                          >
+                            {STATUS_LABELS[option]}
+                          </button>
+                        ),
+                      )}
+                    </div>
+                  </div>
+
+                  <textarea
+                    value={notes}
+                    onChange={(event) => setNotes(event.target.value)}
+                    rows={2}
+                    placeholder="Nota rápida (opcional)"
+                    className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs outline-none focus:border-brand-500"
+                  />
+
+                  <Button size="sm" className="w-full" onClick={() => void save(capture.duplicate)}>
+                    {capture.duplicate ? "Actualizar estado y guardar" : "Guardar postulación"}
+                  </Button>
+                </div>
+              )}
+            </section>
+
+            <section>
+              <div className="mb-1.5 flex items-center justify-between">
+                <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Recientes
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => void openDashboard()}
+                  className="text-[11px] font-medium text-brand-600 hover:underline"
+                >
+                  Ver todas
+                </button>
+              </div>
+
+              {applications.length === 0 ? (
+                <p className="rounded-lg border border-dashed border-slate-300 bg-white px-3 py-4 text-center text-xs text-slate-400">
+                  Sin postulaciones todavía.
+                </p>
+              ) : (
+                <ul className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 bg-white">
+                  {applications.slice(0, 6).map((application) => (
+                    <li key={application.id}>
+                      <button
+                        type="button"
+                        onClick={() => void openDashboard(`/dashboard.html?app=${application.id}`)}
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-slate-50"
+                      >
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-xs font-medium text-slate-800">
+                            {application.jobTitle}
+                          </span>
+                          <span className="block truncate text-[11px] text-slate-500">
+                            {application.company}
+                          </span>
+                        </span>
+                        <StatusBadge status={application.status} />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+
+            <section>
+              <div className="mb-1.5 flex items-center justify-between">
+                <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Seguimientos
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => void openDashboard("/dashboard.html?tab=reminders")}
+                  className="inline-flex items-center gap-0.5 text-[11px] font-medium text-brand-600 hover:underline"
+                >
+                  Ver todos <ArrowUpRight size={11} />
+                </button>
+              </div>
+
+              {reminders.length === 0 ? (
+                <p className="rounded-lg border border-dashed border-slate-300 bg-white px-3 py-3 text-center text-xs text-slate-400">
+                  Sin recordatorios pendientes.
+                </p>
+              ) : (
+                <ul className="space-y-1">
+                  {reminders.map((reminder) => {
+                    const application = applications.find((item) => item.id === reminder.applicationId);
+                    const overdue = new Date(reminder.dueAt).getTime() < Date.now();
+                    return (
+                      <li key={reminder.id}>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            application && void openDashboard(`/dashboard.html?app=${application.id}`)
+                          }
+                          className="flex w-full items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-left hover:border-brand-300"
+                        >
+                          <CalendarClock
+                            size={13}
+                            className={overdue ? "shrink-0 text-rose-500" : "shrink-0 text-amber-500"}
+                          />
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-[11px] font-medium text-slate-700">
+                              {application?.company ?? "Postulación"}
+                            </span>
+                            <span
+                              className={cn(
+                                "block text-[10px]",
+                                overdue ? "text-rose-600" : "text-slate-400",
+                              )}
+                            >
+                              {formatDateEs(reminder.dueAt)} · {relativeTimeEs(reminder.dueAt)}
+                            </span>
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </section>
+          </div>
+        )}
+
+        {activeTab === "discover" && (
+          <div className="space-y-3">
+            {/* Search bar */}
+            <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+              <div className="space-y-2">
+                <div className="flex gap-2">
+                  <div className="flex-1 relative">
+                    <Search className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                    <input
+                      type="text"
+                      value={discoverQuery}
+                      onChange={(e) => setDiscoverQuery(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && runDiscoverSearch(true)}
+                      placeholder="Buscar ofertas (ej: backend developer, react, python...)"
+                      className="w-full pl-8 pr-4 py-2 rounded-lg border border-slate-300 text-sm outline-none focus:border-brand-500"
+                    />
+                  </div>
+                  <Button size="sm" onClick={() => runDiscoverSearch(true)} disabled={discoverLoading || !discoverQuery.trim()}>
+                    {discoverLoading ? <Spinner label="Buscando…" /> : "Buscar"}
+                  </Button>
+                </div>
+
+                {/* Filters row */}
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <select
+                    value={discoverSource}
+                    onChange={(e) => setDiscoverSource(e.target.value as "all" | Source)}
+                    className="px-2 py-1 rounded border border-slate-300 bg-white text-slate-700"
+                  >
+                    <option value="all">Todos los portales</option>
+                    <option value="linkedin">LinkedIn</option>
+                    <option value="indeed">Indeed</option>
+                    <option value="computrabajo">Computrabajo</option>
+                    <option value="bumeran">Bumeran</option>
+                    <option value="getonbrd">Get on Board</option>
+                    <option value="torre">Torre</option>
+                  </select>
+
+                  <input
+                    type="text"
+                    value={discoverFilters.location || ""}
+                    onChange={(e) => setDiscoverFilters({ ...discoverFilters, location: e.target.value || undefined })}
+                    placeholder="Ubicación (ej: Bogotá, Medellín, Remoto)"
+                    className="px-2 py-1 rounded border border-slate-300 text-slate-700 min-w-[140px]"
+                  />
+
+                  <select
+                    value={discoverFilters.workMode || ""}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setDiscoverFilters({
+                        ...discoverFilters,
+                        workMode: (value === "remote" || value === "hybrid" || value === "onsite") ? value : undefined,
+                      });
+                    }}
+                    className="px-2 py-1 rounded border border-slate-300 bg-white text-slate-700"
+                  >
+                    <option value="">Todas las modalidades</option>
+                    <option value="remote">Remoto</option>
+                    <option value="hybrid">Híbrido</option>
+                    <option value="onsite">Presencial</option>
+                  </select>
+
+                  <select
+                    value={discoverFilters.postedWithinDays || ""}
+                    onChange={(e) => setDiscoverFilters({ ...discoverFilters, postedWithinDays: e.target.value ? parseInt(e.target.value) : undefined })}
+                    className="px-2 py-1 rounded border border-slate-300 bg-white text-slate-700"
+                  >
+                    <option value="">Cualquier fecha</option>
+                    <option value="1">Últimas 24h</option>
+                    <option value="3">Últimos 3 días</option>
+                    <option value="7">Última semana</option>
+                    <option value="30">Último mes</option>
+                  </select>
                 </div>
               </div>
 
-              <textarea
-                value={notes}
-                onChange={(event) => setNotes(event.target.value)}
-                rows={2}
-                placeholder="Nota rápida (opcional)"
-                className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs outline-none focus:border-brand-500"
-              />
-
-              <Button size="sm" className="w-full" onClick={() => void save(capture.duplicate)}>
-                {capture.duplicate ? "Actualizar estado y guardar" : "Guardar postulación"}
-              </Button>
-            </div>
-          )}
-        </section>
-
-        <section>
-          <div className="mb-1.5 flex items-center justify-between">
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Recientes
-            </h2>
-            <button
-              type="button"
-              onClick={() => void openDashboard()}
-              className="text-[11px] font-medium text-brand-600 hover:underline"
-            >
-              Ver todas
-            </button>
-          </div>
-
-          {applications.length === 0 ? (
-            <p className="rounded-lg border border-dashed border-slate-300 bg-white px-3 py-4 text-center text-xs text-slate-400">
-              Sin postulaciones todavía.
-            </p>
-          ) : (
-            <ul className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 bg-white">
-              {applications.slice(0, 6).map((application) => (
-                <li key={application.id}>
-                  <button
-                    type="button"
-                    onClick={() => void openDashboard(`/dashboard.html?app=${application.id}`)}
-                    className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-slate-50"
-                  >
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-xs font-medium text-slate-800">
-                        {application.jobTitle}
-                      </span>
-                      <span className="block truncate text-[11px] text-slate-500">
-                        {application.company}
-                      </span>
-                    </span>
-                    <StatusBadge status={application.status} />
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-
-        <section>
-          <div className="mb-1.5 flex items-center justify-between">
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Seguimientos
-            </h2>
-            <button
-              type="button"
-              onClick={() => void openDashboard("/dashboard.html?tab=reminders")}
-              className="inline-flex items-center gap-0.5 text-[11px] font-medium text-brand-600 hover:underline"
-            >
-              Ver todos <ArrowUpRight size={11} />
-            </button>
-          </div>
-
-          {reminders.length === 0 ? (
-            <p className="rounded-lg border border-dashed border-slate-300 bg-white px-3 py-3 text-center text-xs text-slate-400">
-              Sin recordatorios pendientes.
-            </p>
-          ) : (
-            <ul className="space-y-1">
-              {reminders.map((reminder) => {
-                const application = applications.find((item) => item.id === reminder.applicationId);
-                const overdue = new Date(reminder.dueAt).getTime() < Date.now();
-                return (
-                  <li key={reminder.id}>
+              {/* History dropdown */}
+              {showHistory && discoverHistory.length > 0 && (
+                <div className="mt-2 pt-2 border-t border-slate-200">
+                  <p className="text-xs font-medium text-slate-500 mb-1">Historial reciente</p>
+                  <div className="flex flex-wrap gap-1">
+                    {discoverHistory.map((h, i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => useHistoryQuery(h.query)}
+                        className="px-2 py-1 rounded-full bg-slate-100 text-xs text-slate-600 hover:bg-slate-200"
+                      >
+                        {h.query} ({h.resultCount})
+                      </button>
+                    ))}
                     <button
                       type="button"
-                      onClick={() =>
-                        application && void openDashboard(`/dashboard.html?app=${application.id}`)
-                      }
-                      className="flex w-full items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-left hover:border-brand-300"
+                      onClick={() => setShowHistory(false)}
+                      className="px-2 py-1 rounded-full text-xs text-slate-400 hover:text-slate-600"
                     >
-                      <CalendarClock
-                        size={13}
-                        className={overdue ? "shrink-0 text-rose-500" : "shrink-0 text-amber-500"}
-                      />
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[11px] font-medium text-slate-700">
-                          {application?.company ?? "Postulación"}
-                        </span>
-                        <span
-                          className={cn(
-                            "block text-[10px]",
-                            overdue ? "text-rose-600" : "text-slate-400",
-                          )}
-                        >
-                          {formatDateEs(reminder.dueAt)} · {relativeTimeEs(reminder.dueAt)}
-                        </span>
-                      </span>
+                      × Cerrar
                     </button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </section>
+                  </div>
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setShowHistory(!showHistory)}
+                className="w-full mt-2 px-2 py-1 rounded-lg text-xs text-slate-500 hover:bg-slate-50"
+              >
+                {showHistory ? "Ocultar historial" : `Historial (${discoverHistory.length})`}
+              </button>
+            </div>
+
+            {/* Results */}
+            {discoverError && (
+              <div className="rounded-lg bg-rose-50 border border-rose-200 p-3 text-sm text-rose-700">
+                {discoverError}
+              </div>
+            )}
+
+            {discoverResults.length === 0 && !discoverLoading && !discoverError && (
+              <div className="rounded-lg border border-dashed border-slate-300 bg-white px-4 py-6 text-center text-sm text-slate-400">
+                {discoverQuery
+                  ? "No se encontraron ofertas. Prueba cambiar los filtros o ampliar la búsqueda."
+                  : "Escribe una búsqueda y pulsa «Buscar» para encontrar ofertas en LinkedIn, Indeed, Computrabajo y más."}
+              </div>
+            )}
+
+            {discoverResults.length > 0 && (
+              <div className="space-y-2">
+                {discoverResults.map((job) => (
+                  <div
+                    key={job.id}
+                    className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm hover:shadow-md transition-shadow"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold text-slate-800 truncate">{job.jobTitle}</p>
+                        <p className="text-xs text-slate-500 truncate">{job.company}</p>
+                        <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                          {job.location && (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] bg-slate-100 text-slate-600">
+                              {job.location}
+                            </span>
+                          )}
+                          {job.workMode && (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] bg-brand-50 text-brand-700">
+                              {job.workMode === "remote" ? "🏠" : job.workMode === "hybrid" ? "🔄" : "🏢"} {job.workMode}
+                            </span>
+                          )}
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] bg-emerald-50 text-emerald-700">
+                            {job.source}
+                          </span>
+                          {job.postedAt && (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] bg-slate-100 text-slate-500">
+                              {formatDateEs(job.postedAt)}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <span className="inline-flex items-center gap-0.5 px-2 py-1 rounded text-[10px] font-medium bg-slate-100 text-slate-500">
+                        {job.confidence}
+                      </span>
+                    </div>
+
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void browser.tabs.create({ url: job.url })}
+                        className="flex-1 min-w-[100px] px-2 py-1.5 text-xs font-medium text-brand-600 hover:bg-brand-50 rounded-lg border border-brand-200"
+                      >
+                        Abrir oferta
+                      </button>
+                      {!job.userAction && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => handleDiscoverAction(job.id, "save")}
+                            className="flex-1 min-w-[100px] px-2 py-1.5 text-xs font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg"
+                          >
+                            Guardar en Postulia
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDiscoverAction(job.id, "remind_later")}
+                            className="flex-1 min-w-[100px] px-2 py-1.5 text-xs font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg"
+                          >
+                            🔔 Recordar luego
+                          </button>
+                        </>
+                      )}
+                      {job.userAction === "saved" && (
+                        <span className="flex-1 min-w-[100px] px-2 py-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 rounded-lg text-center">
+                          ✓ Guardado
+                        </span>
+                      )}
+                      {job.userAction === "dismissed" && (
+                        <span className="flex-1 min-w-[100px] px-2 py-1.5 text-xs font-medium text-slate-400 bg-slate-50 rounded-lg text-center">
+                          Descartada
+                        </span>
+                      )}
+                      {job.userAction === "remind_later" && (
+                        <span className="flex-1 min-w-[100px] px-2 py-1.5 text-xs font-medium text-amber-700 bg-amber-50 rounded-lg text-center">
+                          🔔 Recordar: {job.reminderAt ? formatDateEs(job.reminderAt) : "pendiente"}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+
+                {discoverLoading && discoverResults.length > 0 && (
+                  <div className="flex justify-center py-4">
+                    <Spinner label="Cargando más..." />
+                  </div>
+                )}
+
+                {discoverResults.length > 0 && !discoverLoading && (
+                  <button
+                    type="button"
+                    onClick={loadMoreDiscover}
+                    className="w-full px-3 py-2 text-sm font-medium text-brand-600 hover:bg-brand-50 rounded-lg border border-brand-200"
+                  >
+                    Cargar más ({discoverResults.length} de {discoverTotal})
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </main>
 
       <footer className="border-t border-slate-200 bg-white px-2 sm:px-3 py-2">
