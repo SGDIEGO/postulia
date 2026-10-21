@@ -4,6 +4,7 @@ import { SYNC_DEFAULTS, type ApplicationStatus } from "@postulia/shared";
 import { db } from "~/lib/db";
 import { apiRequest, ApiError } from "~/lib/api";
 import { checkDueReminders, remindersSummary } from "~/lib/notifications";
+import { discoveryService } from "~/lib/discovery/service.js";
 import {
   createApplication,
   changeStatus,
@@ -23,6 +24,8 @@ import type {
 
 const SYNC_ALARM = "postulia:sync";
 const REMINDER_ALARM = "postulia:reminders";
+const DISCOVERY_ALARM = "postulia:discovery:alerts";
+const DISCOVERY_CLEANUP_ALARM = "postulia:discovery:cleanup";
 
 async function scheduleAlarms(): Promise<void> {
   const settings = await getSettings();
@@ -35,6 +38,15 @@ async function scheduleAlarms(): Promise<void> {
     });
   } else {
     await browser.alarms.clear(SYNC_ALARM);
+  }
+
+  // Alarmas de descubrimiento (solo si hay sesión)
+  if (hasSession(settings)) {
+    await browser.alarms.create(DISCOVERY_ALARM, { periodInMinutes: 60 * 24 }); // diario
+    await browser.alarms.create(DISCOVERY_CLEANUP_ALARM, { periodInMinutes: 60 * 24 }); // diario
+  } else {
+    await browser.alarms.clear(DISCOVERY_ALARM);
+    await browser.alarms.clear(DISCOVERY_CLEANUP_ALARM);
   }
 }
 
@@ -145,6 +157,8 @@ export default defineBackground(() => {
   browser.alarms.onAlarm.addListener((alarm) => {
     if (alarm.name === SYNC_ALARM) void syncNow();
     if (alarm.name === REMINDER_ALARM) void checkDueReminders();
+    if (alarm.name === DISCOVERY_ALARM) void discoveryService.runAlerts();
+    if (alarm.name === DISCOVERY_CLEANUP_ALARM) void discoveryService.cleanup();
   });
 
   browser.runtime.onMessage.addListener((message: unknown, sender, sendResponse) => {
@@ -194,6 +208,61 @@ export default defineBackground(() => {
           }
           await browser.tabs.create({ url: browser.runtime.getURL("/dashboard.html") });
           return { ok: false, fallback: "dashboard" };
+        }
+
+        // Discovery handlers
+        case "discovery:search": {
+          const result = await discoveryService.search({
+            query: request.query,
+            filters: request.filters,
+            source: request.source,
+          });
+          return result;
+        }
+
+        case "discovery:list": {
+          const result = await discoveryService.list({
+            query: request.query,
+            source: request.source,
+            filters: request.filters,
+            page: request.page,
+            pageSize: request.pageSize,
+          });
+          return result;
+        }
+
+        case "discovery:action": {
+          await discoveryService.performAction({
+            jobId: request.jobId,
+            action: request.action,
+            reminderDays: request.reminderDays,
+          });
+          return { ok: true };
+        }
+
+        case "discovery:history": {
+          const history = await discoveryService.getHistory();
+          return history;
+        }
+
+        case "discovery:alert:create": {
+          const alert = await discoveryService.createAlert(request.alert);
+          return alert;
+        }
+
+        case "discovery:alert:list": {
+          const alerts = await discoveryService.listAlerts();
+          return alerts;
+        }
+
+        case "discovery:alert:toggle": {
+          await discoveryService.toggleAlert(request.id, request.enabled);
+          return { ok: true };
+        }
+
+        case "discovery:alert:delete": {
+          await discoveryService.deleteAlert(request.id);
+          return { ok: true };
         }
 
         default:

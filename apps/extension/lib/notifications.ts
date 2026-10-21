@@ -3,6 +3,20 @@ import { browser } from "wxt/browser";
 import { db } from "./db";
 import { getSettings } from "./settings";
 
+/** Notifica nuevas ofertas descubiertas por alertas. */
+export async function notifyNewDiscoveredJobs(query: string, count: number): Promise<void> {
+  const settings = await getSettings();
+  if (!settings.notificationsEnabled) return;
+
+  await browser.notifications.create(`postulia-discovery-${Date.now()}`, {
+    type: "basic",
+    title: "Nuevas ofertas encontradas",
+    message: `Se encontraron ${count} ofertas nuevas para "${query}". Abre el panel para verlas.`,
+    iconUrl: browser.runtime.getURL("/icon/128.png"),
+    priority: 1,
+  });
+}
+
 /** Notifica los recordatorios vencidos y los marca como avisados. */
 export async function checkDueReminders(): Promise<number> {
   const settings = await getSettings();
