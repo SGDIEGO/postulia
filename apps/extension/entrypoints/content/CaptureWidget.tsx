@@ -115,15 +115,15 @@ export function CaptureWidget() {
   }
 
   return (
-    <div className="fixed bottom-5 right-5 z-[2147483000] w-80 overflow-hidden rounded-xl border border-slate-200 bg-white font-sans text-slate-900 shadow-2xl">
-      <header className="flex items-center justify-between bg-brand-600 px-4 py-3 text-white">
+    <div className="fixed bottom-5 right-5 z-[2147483000] max-w-xs w-full overflow-hidden rounded-xl border border-slate-200 bg-white font-sans text-slate-900 shadow-2xl">
+      <header className="flex items-center justify-between bg-brand-600 px-3 py-2.5 text-white">
         <span className="text-sm font-semibold">Guardar en Postulia</span>
         <button type="button" onClick={reset} className="text-white/80 hover:text-white">
           ✕
         </button>
       </header>
 
-      <div className="space-y-3 p-4 text-sm">
+      <div className="space-y-3 p-3 text-sm">
         {stage === "loading" && <p className="text-slate-500">Procesando…</p>}
 
         {stage === "error" && (

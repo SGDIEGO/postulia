@@ -165,16 +165,16 @@ export function SidePanelApp() {
   return (
     <div className="flex h-screen flex-col bg-slate-50">
       <header className="flex items-center justify-between border-b border-slate-200 bg-white px-3 py-2.5">
-        <div className="flex items-center gap-2">
-          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-600 text-white">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white">
             <BriefcaseBusiness size={16} />
           </span>
-          <div>
-            <p className="text-sm font-bold text-slate-900">Postulia</p>
+          <div className="min-w-0">
+            <p className="text-sm font-bold text-slate-900 truncate">Postulia</p>
             <SyncLine status={extensionStatus} pending={pending} />
           </div>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 shrink-0">
           <button
             type="button"
             onClick={() => void syncNow()}
@@ -194,7 +194,7 @@ export function SidePanelApp() {
         </div>
       </header>
 
-      <main className="flex-1 space-y-3 overflow-y-auto p-3">
+      <main className="flex-1 space-y-3 overflow-y-auto p-2 sm:p-3">
         <section className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
           <div className="mb-2 flex items-center justify-between">
             <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -255,7 +255,7 @@ export function SidePanelApp() {
                         type="button"
                         onClick={() => setStatus(option)}
                         className={cn(
-                          "rounded-full px-2 py-0.5 text-[11px] font-medium",
+                          "rounded-full px-2.5 py-1 text-xs font-medium whitespace-nowrap",
                           status === option
                             ? "bg-brand-600 text-white"
                             : "bg-slate-100 text-slate-600 hover:bg-slate-200",
@@ -384,7 +384,7 @@ export function SidePanelApp() {
         </section>
       </main>
 
-      <footer className="border-t border-slate-200 bg-white px-3 py-2">
+      <footer className="border-t border-slate-200 bg-white px-2 sm:px-3 py-2">
         <Button
           size="sm"
           variant="secondary"

@@ -1,8 +1,11 @@
 import { useEffect, useState } from "react";
+import { browser } from "wxt/browser";
 import {
   BarChart3,
   BriefcaseBusiness,
   CalendarClock,
+  ChevronLeft,
+  ChevronRight,
   KanbanSquare,
   Plus,
   RefreshCw,
@@ -31,11 +34,35 @@ const NAV: { id: Tab; label: string; icon: typeof BarChart3 }[] = [
   { id: "settings", label: "Ajustes", icon: Settings },
 ];
 
+const SIDEBAR_WIDTH_EXPANDED = 240; // w-60
+const SIDEBAR_WIDTH_COLLAPSED = 56; // w-14
+
 export function DashboardApp() {
   const [tab, setTab] = useState<Tab>("overview");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const { status, refresh, syncing, syncNow } = useExtensionStatus();
+
+  // Cargar preferencia de sidebar colapsado
+  useEffect(() => {
+    if (typeof browser !== "undefined" && browser.storage?.sync) {
+      browser.storage.sync.get(["sidebarCollapsed"], (result: { sidebarCollapsed?: boolean }) => {
+        if (result.sidebarCollapsed !== undefined) {
+          setSidebarCollapsed(result.sidebarCollapsed);
+        }
+      });
+    }
+  }, []);
+
+  // Guardar preferencia
+  const toggleSidebar = () => {
+    const next = !sidebarCollapsed;
+    setSidebarCollapsed(next);
+    if (typeof browser !== "undefined" && browser.storage?.sync) {
+      browser.storage.sync.set({ sidebarCollapsed: next });
+    }
+  };
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -46,21 +73,41 @@ export function DashboardApp() {
   }, []);
 
   const pending = status?.pending ?? 0;
+  const sidebarWidth = sidebarCollapsed ? SIDEBAR_WIDTH_COLLAPSED : SIDEBAR_WIDTH_EXPANDED;
 
   return (
     <div className="flex min-h-screen bg-slate-50">
-      <aside className="flex w-60 shrink-0 flex-col border-r border-slate-200 bg-white">
-        <div className="flex items-center gap-2 px-5 py-5">
-          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-600 text-white">
-            <BriefcaseBusiness size={18} />
-          </span>
-          <div>
-            <p className="text-sm font-bold tracking-tight text-slate-900">Postulia</p>
-            <p className="text-[11px] text-slate-500">Seguimiento de postulaciones</p>
-          </div>
+      <aside
+        className="flex shrink-0 flex-col border-r border-slate-200 bg-white transition-all duration-200 ease-in-out"
+        style={{ width: sidebarWidth }}
+      >
+        <div className="flex items-center justify-between px-3 py-4">
+          {!sidebarCollapsed && (
+            <div className="flex items-center gap-2 min-w-0 flex-1">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-600 text-white">
+                <BriefcaseBusiness size={18} />
+              </span>
+              <div className="min-w-0">
+                <p className="text-sm font-bold tracking-tight text-slate-900 truncate">Postulia</p>
+                <p className="text-[11px] text-slate-500 truncate">Seguimiento de postulaciones</p>
+              </div>
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={toggleSidebar}
+            className={cn(
+              "rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 transition-transform duration-200",
+              sidebarCollapsed && "rotate-180",
+            )}
+            title={sidebarCollapsed ? "Expandir sidebar" : "Colapsar sidebar"}
+            aria-label={sidebarCollapsed ? "Expandir sidebar" : "Colapsar sidebar"}
+          >
+            {sidebarCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+          </button>
         </div>
 
-        <nav className="flex-1 space-y-1 px-3">
+        <nav className="flex-1 space-y-1 px-2" style={{ overflow: "hidden" }}>
           {NAV.map((item) => {
             const Icon = item.icon;
             const active = tab === item.id;
@@ -70,52 +117,60 @@ export function DashboardApp() {
                 type="button"
                 onClick={() => setTab(item.id)}
                 className={cn(
-                  "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition",
+                  "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
                   active
                     ? "bg-brand-50 text-brand-700"
                     : "text-slate-600 hover:bg-slate-50 hover:text-slate-900",
                 )}
+                style={{ justifyContent: sidebarCollapsed ? "center" : "flex-start" }}
+                title={sidebarCollapsed ? item.label : undefined}
               >
-                <Icon size={16} />
-                {item.label}
-                {item.id === "reminders" && (status?.reminders.overdue ?? 0) > 0 && (
-                  <span className="ml-auto rounded-full bg-rose-100 px-1.5 text-[10px] font-semibold text-rose-700">
-                    {status?.reminders.overdue}
-                  </span>
+                <Icon size={18} className="shrink-0" />
+                {!sidebarCollapsed && (
+                  <>
+                    <span className="truncate">{item.label}</span>
+                    {item.id === "reminders" && (status?.reminders.overdue ?? 0) > 0 && (
+                      <span className="ml-auto rounded-full bg-rose-100 px-1.5 text-[10px] font-semibold text-rose-700">
+                        {status?.reminders.overdue}
+                      </span>
+                    )}
+                  </>
                 )}
               </button>
             );
           })}
         </nav>
 
-        <div className="border-t border-slate-200 p-3">
-          <div className="rounded-lg bg-slate-50 p-3 text-xs text-slate-500">
-            <p className="flex items-center justify-between font-medium text-slate-600">
-              <span>Servidor</span>
-              <span
-                className={cn(
-                  "h-2 w-2 rounded-full",
-                  status?.lastSyncError
-                    ? "bg-rose-500"
-                    : status?.loggedIn
-                      ? "bg-emerald-500"
-                      : "bg-slate-300",
-                )}
-                title={status?.lastSyncError ?? (status?.loggedIn ? "Conectado" : "Sin sesión")}
-              />
-            </p>
-            <p className="mt-1 truncate">{status?.email ?? "Sin iniciar sesión"}</p>
-            <p className="mt-1">
-              {pending > 0 ? `${pending} cambio(s) pendiente(s)` : "Todo sincronizado"}
-            </p>
-            <p className="mt-0.5 text-[11px] text-slate-400">
-              {status?.lastSyncAt ? `Último sync: ${formatDateTimeEs(status.lastSyncAt)}` : "—"}
-            </p>
-            {status?.lastSyncError && (
-              <p className="mt-1 line-clamp-2 text-[11px] text-rose-600">{status.lastSyncError}</p>
-            )}
+        {!sidebarCollapsed && (
+          <div className="border-t border-slate-200 p-3">
+            <div className="rounded-lg bg-slate-50 p-3 text-xs text-slate-500">
+              <p className="flex items-center justify-between font-medium text-slate-600">
+                <span>Servidor</span>
+                <span
+                  className={cn(
+                    "h-2 w-2 rounded-full",
+                    status?.lastSyncError
+                      ? "bg-rose-500"
+                      : status?.loggedIn
+                        ? "bg-emerald-500"
+                        : "bg-slate-300",
+                  )}
+                  title={status?.lastSyncError ?? (status?.loggedIn ? "Conectado" : "Sin sesión")}
+                />
+              </p>
+              <p className="mt-1 truncate">{status?.email ?? "Sin iniciar sesión"}</p>
+              <p className="mt-1">
+                {pending > 0 ? `${pending} cambio(s) pendiente(s)` : "Todo sincronizado"}
+              </p>
+              <p className="mt-0.5 text-[11px] text-slate-400">
+                {status?.lastSyncAt ? `Último sync: ${formatDateTimeEs(status.lastSyncAt)}` : "—"}
+              </p>
+              {status?.lastSyncError && (
+                <p className="mt-1 line-clamp-2 text-[11px] text-rose-600">{status.lastSyncError}</p>
+              )}
+            </div>
           </div>
-        </div>
+        )}
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
