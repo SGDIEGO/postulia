@@ -4,6 +4,12 @@ import type {
   ApplicationEventRecord,
   ReminderRecord,
   TagRecord,
+  Source,
+  WorkMode,
+  DiscoveredJob,
+  SearchHistory,
+  SearchAlert,
+  SearchFilters,
 } from "@postulia/shared";
 
 /** `1` cuando el registro tiene cambios locales pendientes de subir. */
@@ -37,6 +43,9 @@ export class PostuliaDatabase extends Dexie {
   reminders!: Table<LocalReminder, string>;
   tags!: Table<LocalTag, string>;
   meta!: Table<MetaRow, string>;
+  jobDiscoveries!: Table<DiscoveredJob, string>;
+  searchHistory!: Table<SearchHistory, string>;
+  searchAlerts!: Table<SearchAlert, string>;
 
   constructor() {
     super("postulia");
@@ -46,6 +55,15 @@ export class PostuliaDatabase extends Dexie {
       reminders: "id, applicationId, dueAt, done, updatedAt, dirty",
       tags: "id, name, updatedAt, dirty",
       meta: "key",
+    });
+
+    this.version(2).stores({
+      jobDiscoveries: "id, source, searchQuery, scrapedAt, urlHash, userAction, reminderAt, expiresAt",
+      searchHistory: "id, query, executedAt, source",
+      searchAlerts: "id, query, enabled, frequency, lastRunAt",
+    }).upgrade(async (tx) => {
+      // Migración automática: las tablas nuevas se crean vacías
+      // No hay datos que migrar de v1
     });
   }
 }
