@@ -3,19 +3,21 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Postulia: extensión de Chrome para dar seguimiento a tus postulaciones",
+  "description": "Postulia: extensi\u00f3n de Chrome para dar seguimiento a tus postulaciones",
   "scripts": {
     "dev": "wxt",
     "build": "wxt build",
     "zip": "wxt zip",
-    "postinstall": "wxt prepare",
+    "postinstall": "npm run generate:icons && wxt prepare",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "generate:icons": "node scripts/generate-icons.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@postulia/shared": "0.1.0",
+    "canvas": "^3.2.3",
     "dexie": "^4.4.6",
     "dexie-react-hooks": "^4.4.0",
     "lucide-react": "^1.60.0",
