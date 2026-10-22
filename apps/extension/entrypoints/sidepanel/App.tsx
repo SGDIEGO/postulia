@@ -1,17 +1,29 @@
 import { useCallback, useEffect, useState } from "react";
 import { browser } from "wxt/browser";
 import {
-  ArrowUpRight,
-  BriefcaseBusiness,
-  CalendarClock,
-  Check,
-  LayoutDashboard,
-  RefreshCw,
-  Search,
-  Settings,
-} from "lucide-react";
+  faArrowRight,
+  faArrowsRotate,
+  faBan,
+  faBell,
+  faBriefcase,
+  faBuilding,
+  faCalendarCheck,
+  faCamera,
+  faCircleCheck,
+  faCircleInfo,
+  faCompass,
+  faGear,
+  faHouse,
+  faMagnifyingGlass,
+  faShuffle,
+  faTableColumns,
+  faTriangleExclamation,
+  faXmark,
+} from "@fortawesome/free-solid-svg-icons";
 import {
+  SOURCE_LABELS,
   STATUS_LABELS,
+  WORK_MODE_LABELS,
   formatDateEs,
   relativeTimeEs,
   type ApplicationStatus,
@@ -21,6 +33,7 @@ import {
   type DiscoverySearchResult,
   type DiscoveredJob,
 } from "@postulia/shared";
+import { FaIcon } from "~/components/FaIcon";
 import { StatusBadge } from "~/components/StatusBadge";
 import { Button, Spinner, cn } from "~/components/ui";
 import { useApplications, useExtensionStatus, useReminders } from "~/lib/hooks";
@@ -70,6 +83,30 @@ async function extractFromTab(tabId: number): Promise<ExtractedJobResult | null 
 type SidePanelTab = "capture" | "discover";
 
 const DISCOVER_PAGE_SIZE = 20;
+
+const WORK_MODE_ICONS = {
+  remote: faHouse,
+  hybrid: faShuffle,
+  onsite: faBuilding,
+} as const;
+
+const CONFIDENCE_LABELS = {
+  high: "Confianza alta",
+  medium: "Confianza media",
+  low: "Confianza baja",
+} as const;
+
+function workModeHint(source?: string, confidence?: "high" | "medium" | "low"): string {
+  const origin =
+    source === "portal"
+      ? "Modalidad indicada por el portal"
+      : source === "jsonld"
+        ? "Modalidad indicada en los datos estructurados"
+        : source === "text"
+          ? "Modalidad deducida del título o la ubicación"
+          : "Origen de la modalidad no registrado";
+  return confidence ? `${origin} · ${CONFIDENCE_LABELS[confidence]}` : origin;
+}
 
 export function SidePanelApp() {
   const [activeTab, setActiveTab] = useState<SidePanelTab>("capture");
@@ -334,7 +371,7 @@ export function SidePanelApp() {
       <header className="flex items-center justify-between border-b border-slate-200 bg-white px-3 py-2.5">
         <div className="flex items-center gap-2 min-w-0">
           <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white">
-            <BriefcaseBusiness size={16} />
+            <FaIcon icon={faBriefcase} size={16} />
           </span>
           <div className="min-w-0">
             <p className="text-sm font-bold text-slate-900 truncate">Postulia</p>
@@ -348,7 +385,11 @@ export function SidePanelApp() {
             className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100"
             title="Sincronizar ahora"
           >
-            <RefreshCw size={15} className={syncing ? "animate-spin" : undefined} />
+            <FaIcon
+              icon={faArrowsRotate}
+              size={15}
+              className={syncing ? "animate-spin" : undefined}
+            />
           </button>
           <button
             type="button"
@@ -356,7 +397,7 @@ export function SidePanelApp() {
             className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100"
             title="Ajustes"
           >
-            <Settings size={15} />
+            <FaIcon icon={faGear} size={15} />
           </button>
         </div>
       </header>
@@ -377,11 +418,11 @@ export function SidePanelApp() {
           >
             {tab === "capture" ? (
               <>
-                <Search size={14} /> Capturar
+                <FaIcon icon={faCamera} size={14} /> Capturar
               </>
             ) : (
               <>
-                <Search size={14} /> Descubrir
+                <FaIcon icon={faCompass} size={14} /> Descubrir
               </>
             )}
           </button>
@@ -418,11 +459,11 @@ export function SidePanelApp() {
               {capture.stage === "saved" && (
                 <div className="space-y-2">
                   <p className="flex items-start gap-1.5 rounded-lg bg-emerald-50 px-2 py-1.5 text-xs text-emerald-800">
-                    <Check size={14} className="mt-0.5 shrink-0" />
+                    <FaIcon icon={faCircleCheck} size={14} className="mt-0.5" />
                     Guardado: {capture.title}
                   </p>
                   <Button size="sm" className="w-full" onClick={() => void openDashboard()}>
-                    <LayoutDashboard size={14} /> Abrir Postulia
+                    <FaIcon icon={faTableColumns} size={14} /> Abrir Postulia
                   </Button>
                 </div>
               )}
@@ -537,7 +578,7 @@ export function SidePanelApp() {
                   onClick={() => void openDashboard("/dashboard.html?tab=reminders")}
                   className="inline-flex items-center gap-0.5 text-[11px] font-medium text-brand-600 hover:underline"
                 >
-                  Ver todos <ArrowUpRight size={11} />
+                  Ver todos <FaIcon icon={faArrowRight} size={11} />
                 </button>
               </div>
 
@@ -562,11 +603,10 @@ export function SidePanelApp() {
                           }
                           className="flex w-full items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-left hover:border-brand-300"
                         >
-                          <CalendarClock
+                          <FaIcon
+                            icon={faCalendarCheck}
                             size={13}
-                            className={
-                              overdue ? "shrink-0 text-rose-500" : "shrink-0 text-amber-500"
-                            }
+                            className={overdue ? "text-rose-500" : "text-amber-500"}
                           />
                           <span className="min-w-0 flex-1">
                             <span className="block truncate text-[11px] font-medium text-slate-700">
@@ -598,7 +638,8 @@ export function SidePanelApp() {
               <div className="space-y-2">
                 <div className="flex gap-2">
                   <div className="flex-1 relative">
-                    <Search
+                    <FaIcon
+                      icon={faMagnifyingGlass}
                       className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400"
                       size={16}
                     />
@@ -607,7 +648,7 @@ export function SidePanelApp() {
                       value={discoverQuery}
                       onChange={(e) => setDiscoverQuery(e.target.value)}
                       onKeyDown={(e) => e.key === "Enter" && runDiscoverSearch(true)}
-                      placeholder="Buscar ofertas (ej: backend developer, react, python...)"
+                      placeholder="Buscar ofertas (p. ej., backend, React, Python…)"
                       className="w-full pl-8 pr-4 py-2 rounded-lg border border-slate-300 text-sm outline-none focus:border-brand-500"
                     />
                   </div>
@@ -653,7 +694,7 @@ export function SidePanelApp() {
                           location: e.target.value || undefined,
                         })
                       }
-                      placeholder="Ubicación (ej: Bogotá, Medellín, Remoto)"
+                      placeholder="Ubicación (p. ej., Bogotá, Medellín, Remoto)"
                       className="px-2 py-1 pr-6 rounded border border-slate-300 text-slate-700 min-w-[140px]"
                     />
                     {discoverFilters.location && (
@@ -664,9 +705,9 @@ export function SidePanelApp() {
                         onClick={() =>
                           setDiscoverFilters({ ...discoverFilters, location: undefined })
                         }
-                        className="absolute right-1 top-1/2 -translate-y-1/2 rounded px-1 text-sm leading-none text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                        className="absolute right-1 top-1/2 -translate-y-1/2 rounded px-1 leading-none text-slate-400 hover:bg-slate-100 hover:text-slate-600"
                       >
-                        ×
+                        <FaIcon icon={faXmark} size={12} />
                       </button>
                     )}
                   </div>
@@ -702,7 +743,7 @@ export function SidePanelApp() {
                     className="px-2 py-1 rounded border border-slate-300 bg-white text-slate-700"
                   >
                     <option value="">Cualquier fecha</option>
-                    <option value="1">Últimas 24h</option>
+                    <option value="1">Últimas 24 h</option>
                     <option value="3">Últimos 3 días</option>
                     <option value="7">Última semana</option>
                     <option value="30">Último mes</option>
@@ -728,9 +769,9 @@ export function SidePanelApp() {
                     <button
                       type="button"
                       onClick={() => setShowHistory(false)}
-                      className="px-2 py-1 rounded-full text-xs text-slate-400 hover:text-slate-600"
+                      className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs text-slate-400 hover:text-slate-600"
                     >
-                      × Cerrar
+                      <FaIcon icon={faXmark} size={10} /> Cerrar
                     </button>
                   </div>
                 </div>
@@ -754,7 +795,10 @@ export function SidePanelApp() {
 
             {discoverWarnings.length > 0 && (
               <div className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-800">
-                <p className="font-medium">Avisos de la búsqueda:</p>
+                <p className="flex items-start gap-1.5 font-medium">
+                  <FaIcon icon={faTriangleExclamation} size={12} className="mt-0.5" />
+                  Avisos de la búsqueda:
+                </p>
                 <ul className="mt-1 list-disc space-y-0.5 pl-4">
                   {discoverWarnings.map((warning, index) => (
                     <li key={index}>{warning}</li>
@@ -768,7 +812,7 @@ export function SidePanelApp() {
                 {discoverWarnings.length > 0
                   ? "No se encontraron ofertas. Revisa el aviso de arriba para ver qué ocurrió con el portal."
                   : discoverQuery
-                    ? "No se encontraron ofertas. Prueba cambiar los filtros o ampliar la búsqueda."
+                    ? "No se encontraron ofertas. Prueba cambiando los filtros o ampliando la búsqueda."
                     : "Escribe una búsqueda y pulsa «Buscar» para encontrar ofertas en LinkedIn, Indeed, Computrabajo y más."}
               </div>
             )}
@@ -792,18 +836,27 @@ export function SidePanelApp() {
                               {job.location}
                             </span>
                           )}
-                          {job.workMode && (
-                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] bg-brand-50 text-brand-700">
-                              {job.workMode === "remote"
-                                ? "🏠"
-                                : job.workMode === "hybrid"
-                                  ? "🔄"
-                                  : "🏢"}{" "}
-                              {job.workMode}
+                          {job.workMode ? (
+                            <span
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-brand-50 text-brand-700"
+                              title={workModeHint(job.workModeSource, job.workModeConfidence)}
+                            >
+                              <FaIcon icon={WORK_MODE_ICONS[job.workMode]} size={10} />
+                              {WORK_MODE_LABELS[job.workMode]}
                             </span>
+                          ) : (
+                            discoverFilters.workMode && (
+                              <span
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-slate-100 text-slate-500"
+                                title="La oferta no indica la modalidad; se mantiene para no ocultar resultados."
+                              >
+                                <FaIcon icon={faCircleInfo} size={10} />
+                                Modalidad sin especificar
+                              </span>
+                            )
                           )}
                           <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] bg-emerald-50 text-emerald-700">
-                            {job.source}
+                            {SOURCE_LABELS[job.source]}
                           </span>
                           {job.postedAt && (
                             <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] bg-slate-100 text-slate-500">
@@ -812,8 +865,11 @@ export function SidePanelApp() {
                           )}
                         </div>
                       </div>
-                      <span className="inline-flex items-center gap-0.5 px-2 py-1 rounded text-[10px] font-medium bg-slate-100 text-slate-500">
-                        {job.confidence}
+                      <span
+                        className="inline-flex items-center gap-0.5 px-2 py-1 rounded text-[10px] font-medium bg-slate-100 text-slate-500"
+                        title="Confianza de los datos extraídos de la oferta"
+                      >
+                        {CONFIDENCE_LABELS[job.confidence]}
                       </span>
                     </div>
 
@@ -837,25 +893,26 @@ export function SidePanelApp() {
                           <button
                             type="button"
                             onClick={() => handleDiscoverAction(job.id, "remind_later")}
-                            className="flex-1 min-w-[100px] px-2 py-1.5 text-xs font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg"
+                            className="flex-1 min-w-[100px] inline-flex items-center justify-center gap-1 px-2 py-1.5 text-xs font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg"
                           >
-                            🔔 Recordar luego
+                            <FaIcon icon={faBell} size={11} /> Recordar luego
                           </button>
                         </>
                       )}
                       {job.userAction === "saved" && (
-                        <span className="flex-1 min-w-[100px] px-2 py-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 rounded-lg text-center">
-                          ✓ Guardado
+                        <span className="flex-1 min-w-[100px] inline-flex items-center justify-center gap-1 px-2 py-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 rounded-lg text-center">
+                          <FaIcon icon={faCircleCheck} size={11} /> Guardado
                         </span>
                       )}
                       {job.userAction === "dismissed" && (
-                        <span className="flex-1 min-w-[100px] px-2 py-1.5 text-xs font-medium text-slate-400 bg-slate-50 rounded-lg text-center">
-                          Descartada
+                        <span className="flex-1 min-w-[100px] inline-flex items-center justify-center gap-1 px-2 py-1.5 text-xs font-medium text-slate-400 bg-slate-50 rounded-lg text-center">
+                          <FaIcon icon={faBan} size={11} /> Descartada
                         </span>
                       )}
                       {job.userAction === "remind_later" && (
-                        <span className="flex-1 min-w-[100px] px-2 py-1.5 text-xs font-medium text-amber-700 bg-amber-50 rounded-lg text-center">
-                          🔔 Recordar: {job.reminderAt ? formatDateEs(job.reminderAt) : "pendiente"}
+                        <span className="flex-1 min-w-[100px] inline-flex items-center justify-center gap-1 px-2 py-1.5 text-xs font-medium text-amber-700 bg-amber-50 rounded-lg text-center">
+                          <FaIcon icon={faBell} size={11} /> Recordar:{" "}
+                          {job.reminderAt ? formatDateEs(job.reminderAt) : "pendiente"}
                         </span>
                       )}
                     </div>
@@ -864,7 +921,7 @@ export function SidePanelApp() {
 
                 {discoverLoading && discoverResults.length > 0 && (
                   <div className="flex justify-center py-4">
-                    <Spinner label="Cargando más..." />
+                    <Spinner label="Cargando más…" />
                   </div>
                 )}
 
@@ -892,7 +949,7 @@ export function SidePanelApp() {
           className="w-full"
           onClick={() => void openDashboard()}
         >
-          <LayoutDashboard size={14} /> Abrir dashboard completo
+          <FaIcon icon={faTableColumns} size={14} /> Abrir panel completo
         </Button>
       </footer>
     </div>
@@ -901,10 +958,11 @@ export function SidePanelApp() {
 
 function SyncLine({ status, pending }: { status: ExtensionStatus | null; pending: number }) {
   if (!status) return <p className="text-[10px] text-slate-400">Cargando…</p>;
+  const pendingLabel = `${pending} ${pending === 1 ? "pendiente" : "pendientes"}`;
   if (!status.loggedIn) {
     return (
       <p className="text-[10px] text-slate-400">
-        {status.apiUrl ? "Sin sesión" : "Solo local"} · {pending} pendiente(s)
+        {status.apiUrl ? "Sin sesión" : "Solo local"} · {pendingLabel}
       </p>
     );
   }
@@ -916,7 +974,7 @@ function SyncLine({ status, pending }: { status: ExtensionStatus | null; pending
           status.lastSyncError ? "bg-rose-500" : "bg-emerald-500",
         )}
       />
-      {status.email ?? "Conectado"} · {pending} pendiente(s)
+      {status.email ?? "Conectado"} · {pendingLabel}
     </p>
   );
 }

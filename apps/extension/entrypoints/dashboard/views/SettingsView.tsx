@@ -1,7 +1,16 @@
 import { useEffect, useState } from "react";
 import { browser } from "wxt/browser";
-import { Download, LogOut, RefreshCw, Save, ServerCog, Upload, UserRound } from "lucide-react";
+import {
+  faArrowsRotate,
+  faDownload,
+  faFloppyDisk,
+  faRightFromBracket,
+  faServer,
+  faUpload,
+  faUser,
+} from "@fortawesome/free-solid-svg-icons";
 import { formatDateTimeEs } from "@postulia/shared";
+import { FaIcon } from "~/components/FaIcon";
 import { Button, Card, Field, Input, Spinner, Toggle, cn } from "~/components/ui";
 import { login, logout, register, ensureApiPermission } from "~/lib/auth";
 import { pingServer } from "~/lib/api";
@@ -66,7 +75,7 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
       setInfo(
         health.ok
           ? `Conexión correcta${health.database === "down" ? " (la base de datos del servidor no responde)" : ""}.`
-          : "No se pudo verificar el servidor. Revisa la URL y que el API esté desplegado.",
+          : "No se pudo verificar el servidor. Revisa la URL y que la API esté desplegada.",
       );
       onRefreshStatus();
     } finally {
@@ -173,10 +182,13 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">
-      <Card title="Servidor" actions={<ServerCog size={16} className="text-slate-400" />}>
+      <Card
+        title="Servidor"
+        actions={<FaIcon icon={faServer} size={16} className="text-slate-400" />}
+      >
         <div className="space-y-3">
           <Field
-            label="URL del API de Postulia"
+            label="URL de la API de Postulia"
             hint="Ejemplo: https://api.postulia.tudominio.com (sin barra final)"
           >
             <Input
@@ -188,11 +200,11 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
 
           <div className="flex items-center gap-2">
             <Button size="sm" onClick={() => void saveServer()} disabled={busy === "server"}>
-              <Save size={14} /> Guardar y probar
+              <FaIcon icon={faFloppyDisk} size={14} /> Guardar y probar
             </Button>
             <span className="text-xs text-slate-400">
               {status?.lastSyncAt
-                ? `Último sync: ${formatDateTimeEs(status.lastSyncAt)}`
+                ? `Última sincronización: ${formatDateTimeEs(status.lastSyncAt)}`
                 : "Sin sincronizaciones"}
             </span>
           </div>
@@ -205,7 +217,7 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
         </div>
       </Card>
 
-      <Card title="Cuenta" actions={<UserRound size={16} className="text-slate-400" />}>
+      <Card title="Cuenta" actions={<FaIcon icon={faUser} size={16} className="text-slate-400" />}>
         {settings.user ? (
           <div className="space-y-3">
             <div className="rounded-lg bg-slate-50 px-3 py-2 text-sm">
@@ -221,7 +233,11 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
                 onClick={() => void syncFromStatus()}
                 disabled={syncing}
               >
-                <RefreshCw size={14} className={syncing ? "animate-spin" : undefined} />
+                <FaIcon
+                  icon={faArrowsRotate}
+                  size={14}
+                  className={syncing ? "animate-spin" : undefined}
+                />
                 Sincronizar ahora
               </Button>
               <Button
@@ -230,7 +246,7 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
                 onClick={() => void handleLogout()}
                 disabled={busy === "logout"}
               >
-                <LogOut size={14} /> Cerrar sesión
+                <FaIcon icon={faRightFromBracket} size={14} /> Cerrar sesión
               </Button>
             </div>
             <p className="text-xs text-slate-400">
@@ -338,17 +354,17 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
         <div className="space-y-3">
           <div className="flex flex-wrap gap-2">
             <Button size="sm" variant="secondary" onClick={() => void handleExport("json")}>
-              <Download size={14} /> Exportar JSON
+              <FaIcon icon={faDownload} size={14} /> Exportar JSON
             </Button>
             <Button size="sm" variant="secondary" onClick={() => void handleExport("csv")}>
-              <Download size={14} /> Exportar CSV
+              <FaIcon icon={faDownload} size={14} /> Exportar CSV
             </Button>
           </div>
 
           <div>
             <p className="mb-1 text-xs font-medium text-slate-500">Importar respaldo o CSV</p>
             <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-xs text-slate-500 hover:border-brand-400">
-              <Upload size={14} />
+              <FaIcon icon={faUpload} size={14} />
               {busy === "import" ? "Importando…" : "Seleccionar archivo .json o .csv"}
               <input
                 type="file"
@@ -381,7 +397,7 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
                 })();
               }}
             >
-              <RefreshCw size={14} /> Forzar descarga completa
+              <FaIcon icon={faArrowsRotate} size={14} /> Forzar descarga completa
             </Button>
           </div>
         </div>

@@ -187,7 +187,7 @@ function Card({
         </div>
         {days !== null && (
           <span className="shrink-0 text-[10px] text-slate-400">
-            {days <= 0 ? "hoy" : `hace ${days} d`}
+            {days <= 0 ? "hoy" : `hace ${days} ${days === 1 ? "día" : "días"}`}
           </span>
         )}
       </div>

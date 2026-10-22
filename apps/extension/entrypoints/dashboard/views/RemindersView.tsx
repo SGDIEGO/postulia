@@ -1,5 +1,6 @@
-import { CalendarClock, Check, Trash2 } from "lucide-react";
+import { faCalendarCheck, faCheck, faTrashCan } from "@fortawesome/free-solid-svg-icons";
 import { formatDateEs, relativeTimeEs } from "@postulia/shared";
+import { FaIcon } from "~/components/FaIcon";
 import { EmptyState, Button, cn } from "~/components/ui";
 import { useApplications, useReminders } from "~/lib/hooks";
 import { deleteReminder, updateReminder } from "~/lib/repository";
@@ -67,7 +68,7 @@ export function RemindersView({ onOpenApplication }: { onOpenApplication: (id: s
                         className="flex h-5 w-5 shrink-0 items-center justify-center rounded border border-slate-300 text-transparent hover:border-emerald-500 hover:text-emerald-500"
                         title="Marcar como hecho"
                       >
-                        <Check size={12} />
+                        <FaIcon icon={faCheck} size={12} />
                       </button>
 
                       <button
@@ -87,7 +88,7 @@ export function RemindersView({ onOpenApplication }: { onOpenApplication: (id: s
 
                       <div className="shrink-0 text-right">
                         <p className="flex items-center gap-1 text-xs text-slate-600">
-                          <CalendarClock size={12} /> {formatDateEs(reminder.dueAt)}
+                          <FaIcon icon={faCalendarCheck} size={12} /> {formatDateEs(reminder.dueAt)}
                         </p>
                         <p className="text-[11px] text-slate-400">
                           {relativeTimeEs(reminder.dueAt)}
@@ -100,7 +101,7 @@ export function RemindersView({ onOpenApplication }: { onOpenApplication: (id: s
                         className="shrink-0 text-slate-300 hover:text-rose-500"
                         title="Eliminar"
                       >
-                        <Trash2 size={14} />
+                        <FaIcon icon={faTrashCan} size={14} />
                       </button>
                     </li>
                   );
@@ -126,7 +127,7 @@ export function RemindersView({ onOpenApplication }: { onOpenApplication: (id: s
                     className="flex h-5 w-5 shrink-0 items-center justify-center rounded border border-emerald-500 bg-emerald-500 text-white"
                     title="Marcar como pendiente"
                   >
-                    <Check size={12} />
+                    <FaIcon icon={faCheck} size={12} />
                   </button>
                   <p className="min-w-0 flex-1 truncate text-sm line-through">
                     {application

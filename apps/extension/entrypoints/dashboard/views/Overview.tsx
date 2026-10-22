@@ -1,13 +1,13 @@
 import { useLiveQuery } from "dexie-react-hooks";
+import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
 import {
-  ArrowRight,
-  BriefcaseBusiness,
-  CalendarClock,
-  CircleCheck,
-  MessagesSquare,
-  Send,
-  Target,
-} from "lucide-react";
+  faArrowRight,
+  faBriefcase,
+  faBullseye,
+  faCalendarCheck,
+  faCircleCheck,
+  faComments,
+} from "@fortawesome/free-solid-svg-icons";
 import {
   SOURCE_LABELS,
   STATUS_COLORS,
@@ -15,6 +15,7 @@ import {
   formatDateEs,
   relativeTimeEs,
 } from "@postulia/shared";
+import { FaIcon } from "~/components/FaIcon";
 import { StatusBadge } from "~/components/StatusBadge";
 import { Badge, Card, EmptyState, Spinner, cn } from "~/components/ui";
 import { useApplications, useReminders } from "~/lib/hooks";
@@ -49,28 +50,28 @@ export function Overview({
     <div className="space-y-5">
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Kpi
-          icon={BriefcaseBusiness}
+          icon={faBriefcase}
           label="Postulaciones"
           value={stats.total}
           hint={`${stats.active} en curso`}
           color="#3563f7"
         />
         <Kpi
-          icon={MessagesSquare}
+          icon={faComments}
           label="Entrevistas"
           value={stats.byStatus.interview}
           hint={`${stats.byStatus.screening} en revisión`}
           color="#f59e0b"
         />
         <Kpi
-          icon={CircleCheck}
+          icon={faCircleCheck}
           label="Ofertas"
           value={stats.byStatus.offer}
           hint={`${(stats.responseRate * 100).toFixed(0)}% de respuesta`}
           color="#10b981"
         />
         <Kpi
-          icon={CalendarClock}
+          icon={faCalendarCheck}
           label="Recordatorios"
           value={stats.pendingReminders}
           hint="pendientes"
@@ -142,7 +143,7 @@ export function Overview({
               onClick={() => onGoTo("applications")}
               className="inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:underline"
             >
-              Ver todas <ArrowRight size={12} />
+              Ver todas <FaIcon icon={faArrowRight} size={12} />
             </button>
           }
         >
@@ -191,7 +192,7 @@ export function Overview({
               onClick={() => onGoTo("reminders")}
               className="inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:underline"
             >
-              Ver todos <ArrowRight size={12} />
+              Ver todos <FaIcon icon={faArrowRight} size={12} />
             </button>
           }
         >
@@ -243,7 +244,7 @@ export function Overview({
       {stats.total === 0 && (
         <Card>
           <div className="flex items-start gap-3">
-            <Target className="mt-0.5 text-brand-600" size={18} />
+            <FaIcon icon={faBullseye} className="mt-0.5 text-brand-600" size={18} />
             <div className="text-sm text-slate-600">
               <p className="font-semibold text-slate-800">Primeros pasos</p>
               <ol className="mt-1 list-decimal space-y-1 pl-4 text-xs">
@@ -253,7 +254,8 @@ export function Overview({
                 <li>O crea una postulación manual con el botón “Nueva postulación”.</li>
                 <li>Configura tu servidor en Ajustes para sincronizar entre dispositivos.</li>
                 <li>
-                  El estado avanza solo en el Kanban; los recordatorios te avisan a los 7 días.
+                  Puedes mover el estado en el tablero Kanban; los recordatorios se programan según
+                  los días configurados.
                 </li>
               </ol>
             </div>
@@ -265,13 +267,13 @@ export function Overview({
 }
 
 function Kpi({
-  icon: Icon,
+  icon,
   label,
   value,
   hint,
   color,
 }: {
-  icon: typeof Send;
+  icon: IconDefinition;
   label: string;
   value: number;
   hint: string;
@@ -285,7 +287,7 @@ function Kpi({
           className="flex h-7 w-7 items-center justify-center rounded-lg"
           style={{ backgroundColor: `${color}18`, color }}
         >
-          <Icon size={15} />
+          <FaIcon icon={icon} size={15} />
         </span>
       </div>
       <p className="mt-1 text-2xl font-bold text-slate-900">{value}</p>

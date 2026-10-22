@@ -162,7 +162,7 @@ export async function scrapeLinkedIn(
     try {
       const guestUrl = buildLinkedInGuestSearchUrl(query, filters, page);
       const html = await fetchLinkedInGuestPage(guestUrl);
-      const jobs = parseLinkedInJobsHtml(html, page, filters.workMode);
+      const jobs = parseLinkedInJobsHtml(html, page);
 
       if (jobs.length > 0) {
         return { jobs, hasMore: jobs.length >= LINKEDIN_GUEST_PAGE_SIZE };

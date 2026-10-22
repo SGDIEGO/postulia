@@ -1,5 +1,10 @@
 import * as cheerio from "cheerio";
-import type { SearchFilters, WorkMode } from "@postulia/shared";
+import {
+  detectWorkModeFromText,
+  parseWorkModeLabel,
+  type SearchFilters,
+  type WorkMode,
+} from "@postulia/shared";
 import type { ScrapedJob } from "./scrapers.js";
 
 export const LINKEDIN_ORIGIN = "https://www.linkedin.com";
@@ -53,25 +58,6 @@ export function buildLinkedInGuestSearchUrl(
   return `${LINKEDIN_ORIGIN}/jobs-guest/jobs/api/seeMoreJobPostings/search?${params.toString()}`;
 }
 
-function detectWorkMode(text: string): WorkMode | undefined {
-  const lower = text.toLowerCase();
-  if (
-    lower.includes("remote") ||
-    lower.includes("remoto") ||
-    lower.includes("teletrabajo") ||
-    lower.includes("home office")
-  ) {
-    return "remote";
-  }
-  if (lower.includes("hybrid") || lower.includes("híbrido") || lower.includes("hibrido")) {
-    return "hybrid";
-  }
-  if (lower.includes("on-site") || lower.includes("onsite") || lower.includes("presencial")) {
-    return "onsite";
-  }
-  return undefined;
-}
-
 function linkedInJobId(card: cheerio.Cheerio<any>, href: string): string | undefined {
   const hrefMatch = href.match(/\/jobs\/view\/(?:.*-)?(\d+)/);
   if (hrefMatch?.[1]) return hrefMatch[1];
@@ -90,11 +76,7 @@ function linkedInJobId(card: cheerio.Cheerio<any>, href: string): string | undef
  * Parsea las tarjetas de LinkedIn (tanto el HTML completo de búsqueda como el
  * fragmento del endpoint guest). Es una función pura para poder testearla.
  */
-export function parseLinkedInJobsHtml(
-  html: string,
-  page: number = 0,
-  fallbackWorkMode?: WorkMode,
-): ScrapedJob[] {
+export function parseLinkedInJobsHtml(html: string, page: number = 0): ScrapedJob[] {
   const $ = cheerio.load(html);
   const jobs: ScrapedJob[] = [];
   const seenUrls = new Set<string>();
@@ -156,13 +138,18 @@ export function parseLinkedInJobsHtml(
     if (!title || !company || !url || seenUrls.has(url)) return;
 
     seenUrls.add(url);
+    const workMode =
+      parseWorkModeLabel(workModeText) ?? detectWorkModeFromText(`${title} ${location}`);
+
     jobs.push({
       jobTitle: title,
       company,
       url,
       source: "linkedin",
       location: location || undefined,
-      workMode: detectWorkMode(`${title} ${location} ${workModeText}`) ?? fallbackWorkMode,
+      workMode: workMode?.workMode,
+      workModeSource: workMode?.source ?? "unknown",
+      workModeConfidence: workMode?.confidence ?? "low",
       postedAt,
       confidence: title && company && location ? "high" : "medium",
       pageNumber: page,

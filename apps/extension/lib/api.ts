@@ -91,7 +91,7 @@ export interface RequestOptions {
 }
 
 /**
- * Petición al API con manejo de sesión: renueva el token cuando está por
+ * Petición a la API con manejo de sesión: renueva el token cuando está por
  * expirar y reintenta una vez si el servidor responde 401.
  */
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {

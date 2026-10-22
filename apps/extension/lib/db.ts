@@ -57,14 +57,38 @@ export class PostuliaDatabase extends Dexie {
       meta: "key",
     });
 
-    this.version(2).stores({
-      jobDiscoveries: "id, source, searchQuery, scrapedAt, urlHash, userAction, reminderAt, expiresAt",
-      searchHistory: "id, query, executedAt, source",
-      searchAlerts: "id, query, enabled, frequency, lastRunAt",
-    }).upgrade(async (tx) => {
-      // Migración automática: las tablas nuevas se crean vacías
-      // No hay datos que migrar de v1
-    });
+    this.version(2)
+      .stores({
+        jobDiscoveries:
+          "id, source, searchQuery, scrapedAt, urlHash, userAction, reminderAt, expiresAt",
+        searchHistory: "id, query, executedAt, source",
+        searchAlerts: "id, query, enabled, frequency, lastRunAt",
+      })
+      .upgrade(async (tx) => {
+        // Migración automática: las tablas nuevas se crean vacías
+        // No hay datos que migrar de v1
+      });
+
+    this.version(3)
+      .stores({
+        jobDiscoveries:
+          "id, source, searchQuery, scrapedAt, urlHash, userAction, reminderAt, expiresAt",
+      })
+      .upgrade(async (tx) => {
+        // Las ofertas guardadas antes de registrar el origen podían heredar la
+        // modalidad del filtro de búsqueda. Se limpian para no mostrar un dato
+        // que no procede de la oferta.
+        await tx
+          .table<DiscoveredJob>("jobDiscoveries")
+          .toCollection()
+          .modify((job) => {
+            if (!job.workModeSource) {
+              delete job.workMode;
+              job.workModeSource = "unknown";
+              job.workModeConfidence = "low";
+            }
+          });
+      });
   }
 }
 

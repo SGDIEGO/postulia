@@ -1,4 +1,4 @@
-import type { Source, WorkMode } from "./application.js";
+import type { Source, WorkMode, WorkModeConfidence, WorkModeSource } from "./application.js";
 
 /** Filtros de búsqueda mínimos v1. */
 export interface SearchFilters {
@@ -19,6 +19,10 @@ export interface DiscoveredJob {
   urlHash: string;
   location?: string;
   workMode?: WorkMode;
+  /** De dónde salió la modalidad: portal, JSON-LD, texto o desconocida. */
+  workModeSource?: WorkModeSource;
+  /** Confianza de la deducción de modalidad. */
+  workModeConfidence?: WorkModeConfidence;
   salary?: string;
   currency?: string;
   postedAt?: string;

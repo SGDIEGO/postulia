@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Plus, Search } from "lucide-react";
+import { faMagnifyingGlass, faPlus } from "@fortawesome/free-solid-svg-icons";
 import {
   APPLICATION_STATUSES,
   SOURCE_LABELS,
@@ -10,6 +10,7 @@ import {
   type ApplicationStatus,
   type Source,
 } from "@postulia/shared";
+import { FaIcon } from "~/components/FaIcon";
 import { StatusBadge } from "~/components/StatusBadge";
 import { Button, EmptyState, Input, Select, cn } from "~/components/ui";
 import { useApplications, useTags } from "~/lib/hooks";
@@ -57,7 +58,8 @@ export function ApplicationsView({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative min-w-56 flex-1">
-          <Search
+          <FaIcon
+            icon={faMagnifyingGlass}
             size={14}
             className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
           />
@@ -121,7 +123,7 @@ export function ApplicationsView({
           description="Captura ofertas con el botón flotante o añade una manualmente."
           action={
             <Button size="sm" onClick={onCreate} className="mt-2">
-              <Plus size={14} /> Nueva postulación
+              <FaIcon icon={faPlus} size={14} /> Nueva postulación
             </Button>
           }
         />

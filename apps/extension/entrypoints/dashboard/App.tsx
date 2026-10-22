@@ -1,20 +1,22 @@
 import { useEffect, useState } from "react";
 import { browser } from "wxt/browser";
+import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
 import {
-  BarChart3,
-  BriefcaseBusiness,
-  CalendarClock,
-  ChevronLeft,
-  ChevronRight,
-  KanbanSquare,
-  Plus,
-  RefreshCw,
-  Settings,
-  Table2,
-} from "lucide-react";
+  faArrowsRotate,
+  faBriefcase,
+  faCalendarCheck,
+  faChartColumn,
+  faChevronLeft,
+  faChevronRight,
+  faGear,
+  faPlus,
+  faTableColumns,
+  faTableList,
+} from "@fortawesome/free-solid-svg-icons";
 import { formatDateTimeEs } from "@postulia/shared";
 import { ApplicationDetail } from "~/components/ApplicationDetail";
 import { ApplicationForm } from "~/components/ApplicationForm";
+import { FaIcon } from "~/components/FaIcon";
 import { Button, cn } from "~/components/ui";
 import { useExtensionStatus } from "~/lib/hooks";
 import { Overview } from "./views/Overview";
@@ -26,12 +28,12 @@ import type { DashboardTab } from "./types";
 
 type Tab = DashboardTab;
 
-const NAV: { id: Tab; label: string; icon: typeof BarChart3 }[] = [
-  { id: "overview", label: "Resumen", icon: BarChart3 },
-  { id: "applications", label: "Postulaciones", icon: Table2 },
-  { id: "kanban", label: "Kanban", icon: KanbanSquare },
-  { id: "reminders", label: "Recordatorios", icon: CalendarClock },
-  { id: "settings", label: "Ajustes", icon: Settings },
+const NAV: { id: Tab; label: string; icon: IconDefinition }[] = [
+  { id: "overview", label: "Resumen", icon: faChartColumn },
+  { id: "applications", label: "Postulaciones", icon: faTableList },
+  { id: "kanban", label: "Kanban", icon: faTableColumns },
+  { id: "reminders", label: "Recordatorios", icon: faCalendarCheck },
+  { id: "settings", label: "Ajustes", icon: faGear },
 ];
 
 const SIDEBAR_WIDTH_EXPANDED = 240; // w-60
@@ -85,7 +87,7 @@ export function DashboardApp() {
           {!sidebarCollapsed && (
             <div className="flex items-center gap-2 min-w-0 flex-1">
               <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-600 text-white">
-                <BriefcaseBusiness size={18} />
+                <FaIcon icon={faBriefcase} size={18} />
               </span>
               <div className="min-w-0">
                 <p className="text-sm font-bold tracking-tight text-slate-900 truncate">Postulia</p>
@@ -100,16 +102,15 @@ export function DashboardApp() {
               "rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 transition-transform duration-200",
               sidebarCollapsed && "rotate-180",
             )}
-            title={sidebarCollapsed ? "Expandir sidebar" : "Colapsar sidebar"}
-            aria-label={sidebarCollapsed ? "Expandir sidebar" : "Colapsar sidebar"}
+            title={sidebarCollapsed ? "Expandir barra lateral" : "Contraer barra lateral"}
+            aria-label={sidebarCollapsed ? "Expandir barra lateral" : "Contraer barra lateral"}
           >
-            {sidebarCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+            <FaIcon icon={sidebarCollapsed ? faChevronRight : faChevronLeft} size={16} />
           </button>
         </div>
 
         <nav className="flex-1 space-y-1 px-2" style={{ overflow: "hidden" }}>
           {NAV.map((item) => {
-            const Icon = item.icon;
             const active = tab === item.id;
             return (
               <button
@@ -125,7 +126,7 @@ export function DashboardApp() {
                 style={{ justifyContent: sidebarCollapsed ? "center" : "flex-start" }}
                 title={sidebarCollapsed ? item.label : undefined}
               >
-                <Icon size={18} className="shrink-0" />
+                <FaIcon icon={item.icon} size={18} />
                 {!sidebarCollapsed && (
                   <>
                     <span className="truncate">{item.label}</span>
@@ -160,13 +161,19 @@ export function DashboardApp() {
               </p>
               <p className="mt-1 truncate">{status?.email ?? "Sin iniciar sesión"}</p>
               <p className="mt-1">
-                {pending > 0 ? `${pending} cambio(s) pendiente(s)` : "Todo sincronizado"}
+                {pending > 0
+                  ? `${pending} ${pending === 1 ? "cambio pendiente" : "cambios pendientes"}`
+                  : "Todo sincronizado"}
               </p>
               <p className="mt-0.5 text-[11px] text-slate-400">
-                {status?.lastSyncAt ? `Último sync: ${formatDateTimeEs(status.lastSyncAt)}` : "—"}
+                {status?.lastSyncAt
+                  ? `Última sincronización: ${formatDateTimeEs(status.lastSyncAt)}`
+                  : "—"}
               </p>
               {status?.lastSyncError && (
-                <p className="mt-1 line-clamp-2 text-[11px] text-rose-600">{status.lastSyncError}</p>
+                <p className="mt-1 line-clamp-2 text-[11px] text-rose-600">
+                  {status.lastSyncError}
+                </p>
               )}
             </div>
           </div>
@@ -196,11 +203,15 @@ export function DashboardApp() {
               disabled={syncing}
               title="Sincronizar ahora"
             >
-              <RefreshCw size={14} className={syncing ? "animate-spin" : undefined} />
+              <FaIcon
+                icon={faArrowsRotate}
+                size={14}
+                className={syncing ? "animate-spin" : undefined}
+              />
               {syncing ? "Sincronizando…" : "Sincronizar"}
             </Button>
             <Button size="sm" onClick={() => setCreating(true)}>
-              <Plus size={14} /> Nueva postulación
+              <FaIcon icon={faPlus} size={14} /> Nueva postulación
             </Button>
           </div>
         </header>

@@ -50,7 +50,7 @@ async function persistSession(session: AuthSession): Promise<void> {
 }
 
 /**
- * Pide permiso de acceso (host permission) para la URL del API configurada.
+ * Pide permiso de acceso (host permission) para la URL de la API configurada.
  * Debe llamarse desde una acción del usuario (clic en un botón).
  */
 export async function ensureApiPermission(apiUrl: string): Promise<boolean> {

@@ -116,17 +116,21 @@ export class DiscoveryService {
         }
       }
 
-      await this.updateSearchHistoryResultCount(query, allJobs.length);
+      const matchingJobs = filters.workMode
+        ? allJobs.filter((job) => !job.workMode || job.workMode === filters.workMode)
+        : allJobs;
+
+      await this.updateSearchHistoryResultCount(query, matchingJobs.length);
 
       const start = (page - 1) * pageSize;
-      const paginated = allJobs.slice(start, start + pageSize);
+      const paginated = matchingJobs.slice(start, start + pageSize);
 
       return {
         jobs: paginated,
-        total: allJobs.length,
+        total: matchingJobs.length,
         page,
         pageSize,
-        hasMore: start + pageSize < allJobs.length,
+        hasMore: start + pageSize < matchingJobs.length,
         ...(warnings.size > 0 ? { warnings: [...warnings] } : {}),
       };
     } finally {
@@ -155,7 +159,11 @@ export class DiscoveryService {
       collection = collection.filter((job) => job.location?.toLowerCase().includes(loc) ?? false);
     }
     if (params.filters?.workMode) {
-      collection = collection.filter((job) => job.workMode === params.filters!.workMode);
+      // Las ofertas sin modalidad detectada no se ocultan: el filtro es una
+      // ayuda, no una afirmación de que el portal haya clasificado la oferta.
+      collection = collection.filter(
+        (job) => !job.workMode || job.workMode === params.filters!.workMode,
+      );
     }
     if (params.filters?.postedWithinDays) {
       const cutoff = new Date(
@@ -362,7 +370,7 @@ export class DiscoveryService {
       currency: job.currency,
       status: "saved",
       appliedAt: null,
-      notes: `Descubierta via búsqueda: ${job.searchQuery}`,
+      notes: `Descubierta vía búsqueda: ${job.searchQuery}`,
       recruiterName: null,
       recruiterContact: null,
       cvVersion: null,

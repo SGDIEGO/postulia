@@ -116,6 +116,96 @@ export const WORK_MODE_LABELS: Record<WorkMode, string> = {
   onsite: "Presencial",
 };
 
+export type WorkModeSource = "portal" | "jsonld" | "text" | "unknown";
+export type WorkModeConfidence = "high" | "medium" | "low";
+
+export interface WorkModeDetection {
+  workMode: WorkMode;
+  source: WorkModeSource;
+  confidence: WorkModeConfidence;
+}
+
+function normalizeModeText(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+/**
+ * Interpreta un valor estructurado del portal, por ejemplo el
+ * `workplaceType` de LinkedIn. No deduce a partir de una descripción.
+ */
+export function parseWorkModeLabel(label?: string | null): WorkModeDetection | undefined {
+  const normalized = normalizeModeText(label ?? "").trim();
+  if (!normalized) return undefined;
+
+  if (/\b(hibrid[oa]|hybrid)\b/.test(normalized)) {
+    return { workMode: "hybrid", source: "portal", confidence: "high" };
+  }
+  if (/\b(presencial|on[- ]?site)\b/.test(normalized)) {
+    return { workMode: "onsite", source: "portal", confidence: "high" };
+  }
+  if (/\b(remot[oa]|remote)\b/.test(normalized)) {
+    return { workMode: "remote", source: "portal", confidence: "high" };
+  }
+  return undefined;
+}
+
+/**
+ * Deduce la modalidad a partir de un texto.
+ *
+ * No basta con que aparezca «remote»: en descripciones largas se exige una
+ * frase explícita (`requireExplicit`), para no confundir «remote team» con una
+ * oferta remota. La etiqueta estructurada del portal tiene prioridad y se
+ * procesa con `parseWorkModeLabel`.
+ */
+export function detectWorkModeFromText(
+  text?: string | null,
+  options: { source?: WorkModeSource; requireExplicit?: boolean } = {},
+): WorkModeDetection | undefined {
+  const normalized = normalizeModeText(text ?? "");
+  if (!normalized.trim()) return undefined;
+
+  const strongRemote =
+    /\b(100\s*%|100\s*por\s*ciento|totalmente|completamente|fully)\s*(remot[oa]|remote)\b/.test(
+      normalized,
+    ) ||
+    /\b(remot[oa]|remote)\s*(100\s*%|100\s*por\s*ciento|totalmente|completamente|fully)\b/.test(
+      normalized,
+    ) ||
+    /\b(remote|remoto)[- ]first\b/.test(normalized);
+
+  const explicitRemote =
+    strongRemote ||
+    /\bremot[oa]\b/.test(normalized) ||
+    /\b(teletrabajo|home[ -]?office)\b/.test(normalized) ||
+    /\b(remote|remot[oa])\s+(work|job|position|role|opportunity|puesto|vacante|empleo|cargo|modalidad)\b/.test(
+      normalized,
+    ) ||
+    /\b(trabajo|puesto|vacante|empleo|cargo|modalidad)\s+(remote|remot[oa])\b/.test(normalized);
+
+  const hybrid =
+    /\b(hibrid[oa]|hybrid)\b/.test(normalized) || /\bmodalidad\s+(mixta|mixto)\b/.test(normalized);
+  const onsite = /\b(presencial|on[- ]?site|en\s+(la\s+)?oficina)\b/.test(normalized);
+  const remote = /\b(remot[oa]|remote|teletrabajo|home[ -]?office)\b/.test(normalized);
+
+  const source = options.source ?? "text";
+  if (strongRemote) {
+    return { workMode: "remote", source, confidence: "high" };
+  }
+
+  const matches = [hybrid, onsite, remote].filter(Boolean).length;
+  const confidence: WorkModeConfidence = matches > 1 ? "low" : "medium";
+
+  if (hybrid) return { workMode: "hybrid", source, confidence };
+  if (onsite) return { workMode: "onsite", source, confidence };
+  if (remote && (!options.requireExplicit || explicitRemote)) {
+    return { workMode: "remote", source, confidence };
+  }
+  return undefined;
+}
+
 export const CONTRACT_TYPES = [
   "full_time",
   "part_time",

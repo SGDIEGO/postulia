@@ -1,5 +1,12 @@
 import * as cheerio from "cheerio";
-import type { SearchFilters, Source, WorkMode } from "@postulia/shared";
+import {
+  detectWorkModeFromText,
+  type SearchFilters,
+  type Source,
+  type WorkMode,
+  type WorkModeConfidence,
+  type WorkModeSource,
+} from "@postulia/shared";
 import { hashJobUrl } from "./queue.js";
 
 export interface ScrapedJob {
@@ -9,6 +16,8 @@ export interface ScrapedJob {
   source: Source;
   location?: string;
   workMode?: WorkMode;
+  workModeSource?: WorkModeSource;
+  workModeConfidence?: WorkModeConfidence;
   salary?: string;
   currency?: string;
   postedAt?: string;
@@ -33,27 +42,6 @@ function normalizeSalary(text: string | undefined): { salary?: string; currency?
   const currency = currencyMatch?.[0]?.toUpperCase();
   const salary = cleaned.replace(/[$€£]/g, "").trim() || undefined;
   return { salary, currency };
-}
-
-/** Detecta modalidad de trabajo del texto. */
-function detectWorkMode(text: string | undefined): WorkMode | undefined {
-  if (!text) return undefined;
-  const lower = text.toLowerCase();
-  if (
-    lower.includes("remoto") ||
-    lower.includes("remote") ||
-    lower.includes("teletrabajo") ||
-    lower.includes("home office")
-  ) {
-    return "remote";
-  }
-  if (lower.includes("hibrido") || lower.includes("híbrido") || lower.includes("hybrid")) {
-    return "hybrid";
-  }
-  if (lower.includes("presencial") || lower.includes("onsite") || lower.includes("on-site")) {
-    return "onsite";
-  }
-  return undefined;
 }
 
 /** Scraper base con lógica común. */
@@ -128,7 +116,9 @@ export async function scrapeIndeed(
     const snippetEl = $el.find(".job-snippet, .summary").first();
     const snippet = snippetEl.text().trim();
 
-    const workMode = detectWorkMode(`${location} ${snippet}`);
+    const workMode =
+      detectWorkModeFromText(`${title} ${location}`) ??
+      detectWorkModeFromText(snippet, { requireExplicit: true });
 
     if (title && company) {
       jobs.push({
@@ -137,7 +127,9 @@ export async function scrapeIndeed(
         url: `https://co.indeed.com/viewjob?jk=${jk}`,
         source: "indeed",
         location: location || undefined,
-        workMode,
+        workMode: workMode?.workMode,
+        workModeSource: workMode?.source ?? "unknown",
+        workModeConfidence: workMode?.confidence ?? "low",
         salary,
         currency,
         postedAt: undefined, // Indeed no expone fecha fácilmente en listado
@@ -198,7 +190,9 @@ export async function scrapeComputrabajo(
 
     // Modalidad
     const snippet = $el.text();
-    const workMode = detectWorkMode(`${location} ${snippet}`);
+    const workMode =
+      detectWorkModeFromText(`${title} ${location}`) ??
+      detectWorkModeFromText(snippet, { requireExplicit: true });
 
     const fullUrl = href.startsWith("http") ? href : `https://co.computrabajo.com${href}`;
 
@@ -209,7 +203,9 @@ export async function scrapeComputrabajo(
         url: fullUrl,
         source: "computrabajo",
         location: location || undefined,
-        workMode,
+        workMode: workMode?.workMode,
+        workModeSource: workMode?.source ?? "unknown",
+        workModeConfidence: workMode?.confidence ?? "low",
         salary,
         currency,
         postedAt: undefined,
@@ -256,15 +252,20 @@ export async function scrapeJsonLdList(
               jobPosting.baseSalary?.value?.value?.toString(),
             );
 
+            const isRemote = jobPosting.jobLocationType
+              ?.toString()
+              .toUpperCase()
+              .includes("TELECOMMUTE");
+
             jobs.push({
               jobTitle: jobPosting.title || "Sin título",
               company: jobPosting.hiringOrganization?.name || "Sin empresa",
               url: jobUrl,
               source,
               location: jobPosting.jobLocation?.address?.addressLocality,
-              workMode: jobPosting.jobLocationType?.toString().includes("TELECOMMUTE")
-                ? "remote"
-                : undefined,
+              workMode: isRemote ? "remote" : undefined,
+              workModeSource: isRemote ? "jsonld" : "unknown",
+              workModeConfidence: isRemote ? "high" : "low",
               salary,
               currency,
               postedAt: jobPosting.datePosted,

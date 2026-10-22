@@ -5,6 +5,8 @@ import type {
   SelectHTMLAttributes,
   TextareaHTMLAttributes,
 } from "react";
+import { faXmark } from "@fortawesome/free-solid-svg-icons";
+import { FaIcon } from "~/components/FaIcon";
 
 export function cn(...values: (string | false | null | undefined)[]): string {
   return values.filter(Boolean).join(" ");
@@ -181,8 +183,10 @@ export function Modal({
             type="button"
             onClick={onClose}
             className="rounded-md px-2 py-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+            title="Cerrar"
+            aria-label="Cerrar"
           >
-            ✕
+            <FaIcon icon={faXmark} size={16} />
           </button>
         </header>
         <div className="max-h-[70vh] overflow-y-auto px-5 py-4">{children}</div>

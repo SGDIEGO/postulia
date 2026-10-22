@@ -1,5 +1,11 @@
 import { useEffect, useState } from "react";
 import {
+  faArrowRight,
+  faArrowUpRightFromSquare,
+  faTrashCan,
+  faXmark,
+} from "@fortawesome/free-solid-svg-icons";
+import {
   APPLICATION_STATUSES,
   CONTRACT_TYPE_LABELS,
   EVENT_TYPE_LABELS,
@@ -25,6 +31,7 @@ import {
   updateReminder,
 } from "~/lib/repository";
 import { useApplication, useEvents, useReminders } from "~/lib/hooks";
+import { FaIcon } from "~/components/FaIcon";
 import { ApplicationForm } from "./ApplicationForm";
 import { StatusBadge } from "./StatusBadge";
 import { Button, Field, Input, Spinner, Textarea, cn } from "./ui";
@@ -136,9 +143,9 @@ export function ApplicationDetail({
                   href={application.url}
                   target="_blank"
                   rel="noreferrer"
-                  className="text-xs font-medium text-brand-600 hover:underline"
+                  className="inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:underline"
                 >
-                  Ver oferta original ↗
+                  Ver oferta original <FaIcon icon={faArrowUpRightFromSquare} size={10} />
                 </a>
               )}
             </div>
@@ -147,8 +154,8 @@ export function ApplicationDetail({
             <Button size="sm" variant="secondary" onClick={() => setEditing(true)}>
               Editar
             </Button>
-            <Button size="sm" variant="ghost" onClick={onClose}>
-              ✕
+            <Button size="sm" variant="ghost" onClick={onClose} title="Cerrar" aria-label="Cerrar">
+              <FaIcon icon={faXmark} size={14} />
             </Button>
           </div>
         </header>
@@ -303,8 +310,9 @@ export function ApplicationDetail({
                         onClick={() => void deleteReminder(reminder.id)}
                         className="text-slate-300 hover:text-rose-500"
                         aria-label="Eliminar recordatorio"
+                        title="Eliminar recordatorio"
                       >
-                        ✕
+                        <FaIcon icon={faTrashCan} size={12} />
                       </button>
                     </li>
                   );
@@ -341,9 +349,11 @@ export function ApplicationDetail({
                   <p className="font-medium text-slate-700">
                     {EVENT_TYPE_LABELS[event.type]}
                     {event.fromStatus && event.toStatus && (
-                      <span className="font-normal text-slate-500">
-                        {" "}
-                        · {STATUS_LABELS[event.fromStatus]} → {STATUS_LABELS[event.toStatus]}
+                      <span className="inline-flex items-center gap-1 font-normal text-slate-500">
+                        <span>·</span>
+                        <span>{STATUS_LABELS[event.fromStatus]}</span>
+                        <FaIcon icon={faArrowRight} size={9} />
+                        <span>{STATUS_LABELS[event.toStatus]}</span>
                       </span>
                     )}
                   </p>

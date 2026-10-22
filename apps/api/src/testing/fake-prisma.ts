@@ -1,5 +1,5 @@
 /**
- * Cliente Prisma falso en memoria para las pruebas de integración del API.
+ * Cliente Prisma falso en memoria para las pruebas de integración de la API.
  * Solo implementa lo que usan las rutas y evita necesitar PostgreSQL.
  */
 type Row = Record<string, any>;

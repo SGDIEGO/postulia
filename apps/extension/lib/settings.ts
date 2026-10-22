@@ -2,7 +2,7 @@ import type { UserProfile } from "@postulia/shared";
 import { getMeta, setMeta } from "./db";
 
 export interface PostuliaSettings {
-  /** URL base del API, por ejemplo https://api.postulia.tudominio.com */
+  /** URL base de la API, por ejemplo https://api.postulia.tudominio.com */
   apiUrl: string;
   accessToken: string | null;
   refreshToken: string | null;

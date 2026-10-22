@@ -10,6 +10,7 @@ function cardHtml(options: {
   title: string;
   company: string;
   location: string;
+  workType?: string;
   postedAt?: string;
 }): string {
   return `
@@ -20,6 +21,11 @@ function cardHtml(options: {
       <h3 class="base-search-card__title">${options.title}</h3>
       <h4 class="base-search-card__subtitle"><a href="/company/acme">${options.company}</a></h4>
       <span class="job-search-card__location">${options.location}</span>
+      ${
+        options.workType
+          ? `<span class="job-search-card__workplace-type">${options.workType}</span>`
+          : ""
+      }
       ${
         options.postedAt
           ? `<time class="job-search-card__listdate" datetime="${options.postedAt}"></time>`
@@ -108,10 +114,14 @@ describe("parseLinkedInJobsHtml", () => {
       location: "Bogotá, Colombia",
       url: "https://www.linkedin.com/jobs/view/4474336911/",
       workMode: "remote",
+      workModeSource: "text",
+      workModeConfidence: "medium",
       postedAt: "2026-10-20",
       pageNumber: 1,
     });
     expect(jobs[1]?.url).toBe("https://www.linkedin.com/jobs/view/4462079390/");
+    expect(jobs[1]?.workMode).toBeUndefined();
+    expect(jobs[1]?.workModeSource).toBe("unknown");
   });
 
   it("deduplica tarjetas repetidas", () => {
@@ -125,7 +135,23 @@ describe("parseLinkedInJobsHtml", () => {
     expect(parseLinkedInJobsHtml(`${card}${card}`)).toHaveLength(1);
   });
 
-  it("usa la modalidad del filtro cuando la tarjeta no la indica", () => {
+  it("prioriza la etiqueta estructurada del portal", () => {
+    const html = cardHtml({
+      id: "1234567890",
+      title: "Remote Backend Developer",
+      company: "Acme",
+      location: "Bogotá",
+      workType: "Hybrid",
+    });
+
+    expect(parseLinkedInJobsHtml(html)[0]).toMatchObject({
+      workMode: "hybrid",
+      workModeSource: "portal",
+      workModeConfidence: "high",
+    });
+  });
+
+  it("no inventa una modalidad si la tarjeta no la indica", () => {
     const html = cardHtml({
       id: "1234567890",
       title: "Backend Developer",
@@ -133,7 +159,10 @@ describe("parseLinkedInJobsHtml", () => {
       location: "Bogotá",
     });
 
-    expect(parseLinkedInJobsHtml(html, 0, "hybrid")[0]?.workMode).toBe("hybrid");
+    const job = parseLinkedInJobsHtml(html)[0];
+    expect(job?.workMode).toBeUndefined();
+    expect(job?.workModeSource).toBe("unknown");
+    expect(job?.workModeConfidence).toBe("low");
   });
 
   it("devuelve vacío si el HTML no tiene tarjetas", () => {

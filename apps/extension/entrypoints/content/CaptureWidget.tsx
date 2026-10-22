@@ -1,6 +1,8 @@
 import { useState } from "react";
+import { faBriefcase, faXmark } from "@fortawesome/free-solid-svg-icons";
 import type { ApplicationRecord, ApplicationStatus } from "@postulia/shared";
 import { STATUS_LABELS } from "@postulia/shared";
+import { FaIcon } from "~/components/FaIcon";
 import { extractJob } from "~/lib/extractors";
 import type { ExtractedJobResult } from "~/lib/extractors/types";
 import { sendMessage, type CaptureResponse, type DuplicateResponse } from "~/lib/messaging";
@@ -73,7 +75,10 @@ export function CaptureWidget() {
         status,
         force,
       },
-    }).catch<CaptureResponse>(() => ({ ok: false, error: "No se pudo contactar la extensión" }));
+    }).catch<CaptureResponse>(() => ({
+      ok: false,
+      error: "No se pudo contactar con la extensión",
+    }));
 
     if (response.ok) {
       setSaved(response.application);
@@ -107,7 +112,7 @@ export function CaptureWidget() {
           onClick={() => void openPanel()}
           className="group flex items-center gap-2 rounded-full bg-brand-600 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-brand-900/20 transition hover:bg-brand-700"
         >
-          <span className="text-base leading-none">💼</span>
+          <FaIcon icon={faBriefcase} size={16} />
           Guardar en Postulia
         </button>
       </div>
@@ -118,8 +123,14 @@ export function CaptureWidget() {
     <div className="fixed bottom-5 right-5 z-[2147483000] max-w-xs w-full overflow-hidden rounded-xl border border-slate-200 bg-white font-sans text-slate-900 shadow-2xl">
       <header className="flex items-center justify-between bg-brand-600 px-3 py-2.5 text-white">
         <span className="text-sm font-semibold">Guardar en Postulia</span>
-        <button type="button" onClick={reset} className="text-white/80 hover:text-white">
-          ✕
+        <button
+          type="button"
+          onClick={reset}
+          className="text-white/80 hover:text-white"
+          title="Cerrar"
+          aria-label="Cerrar"
+        >
+          <FaIcon icon={faXmark} size={16} />
         </button>
       </header>
 
