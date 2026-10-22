@@ -9,7 +9,7 @@ Postulia es **local-first**: los datos viven en IndexedDB (Dexie) y se sincroniz
 ## Características
 
 - **Captura desde la oferta**: botón flotante «Guardar en Postulia» en LinkedIn, Computrabajo, Indeed, Bumeran, Get on Board y Torre. En el resto de portales, el panel lateral inyecta el capturador bajo demanda (permiso `activeTab`) y usa JSON-LD/schema.org o heurísticas genéricas.
-- **Descubrimiento de ofertas**: busca desde el panel lateral con filtros de ubicación, modalidad, antigüedad y portal; guarda el historial, crea alertas y guarda ofertas como postulaciones. LinkedIn se consulta en una pestaña oculta temporal mediante los permisos de host de los seis portales.
+- **Descubrimiento de ofertas**: busca desde el panel lateral con filtros de ubicación, modalidad, antigüedad y portal; guarda el historial, crea alertas y guarda ofertas como postulaciones. LinkedIn se consulta mediante su API pública de empleos y, si falla, usa una pestaña oculta temporal como respaldo.
 - **Alta manual** de cualquier postulación desde el dashboard.
 - **Pipeline** con estados: guardada, postulada, en revisión, entrevista, prueba técnica, oferta, rechazada, retirada; cada cambio queda en una línea de tiempo.
 - **Kanban** con arrastrar y soltar y **vista de lista** con filtros y búsqueda.

@@ -643,18 +643,33 @@ export function SidePanelApp() {
                     <option value="torre">Torre</option>
                   </select>
 
-                  <input
-                    type="text"
-                    value={discoverFilters.location || ""}
-                    onChange={(e) =>
-                      setDiscoverFilters({
-                        ...discoverFilters,
-                        location: e.target.value || undefined,
-                      })
-                    }
-                    placeholder="Ubicación (ej: Bogotá, Medellín, Remoto)"
-                    className="px-2 py-1 rounded border border-slate-300 text-slate-700 min-w-[140px]"
-                  />
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={discoverFilters.location || ""}
+                      onChange={(e) =>
+                        setDiscoverFilters({
+                          ...discoverFilters,
+                          location: e.target.value || undefined,
+                        })
+                      }
+                      placeholder="Ubicación (ej: Bogotá, Medellín, Remoto)"
+                      className="px-2 py-1 pr-6 rounded border border-slate-300 text-slate-700 min-w-[140px]"
+                    />
+                    {discoverFilters.location && (
+                      <button
+                        type="button"
+                        aria-label="Limpiar ubicación"
+                        title="Limpiar ubicación"
+                        onClick={() =>
+                          setDiscoverFilters({ ...discoverFilters, location: undefined })
+                        }
+                        className="absolute right-1 top-1/2 -translate-y-1/2 rounded px-1 text-sm leading-none text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
 
                   <select
                     value={discoverFilters.workMode || ""}
@@ -739,7 +754,7 @@ export function SidePanelApp() {
 
             {discoverWarnings.length > 0 && (
               <div className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-800">
-                <p className="font-medium">Algunos portales no respondieron:</p>
+                <p className="font-medium">Avisos de la búsqueda:</p>
                 <ul className="mt-1 list-disc space-y-0.5 pl-4">
                   {discoverWarnings.map((warning, index) => (
                     <li key={index}>{warning}</li>
@@ -750,9 +765,11 @@ export function SidePanelApp() {
 
             {discoverResults.length === 0 && !discoverLoading && !discoverError && (
               <div className="rounded-lg border border-dashed border-slate-300 bg-white px-4 py-6 text-center text-sm text-slate-400">
-                {discoverQuery
-                  ? "No se encontraron ofertas. Prueba cambiar los filtros o ampliar la búsqueda."
-                  : "Escribe una búsqueda y pulsa «Buscar» para encontrar ofertas en LinkedIn, Indeed, Computrabajo y más."}
+                {discoverWarnings.length > 0
+                  ? "No se encontraron ofertas. Revisa el aviso de arriba para ver qué ocurrió con el portal."
+                  : discoverQuery
+                    ? "No se encontraron ofertas. Prueba cambiar los filtros o ampliar la búsqueda."
+                    : "Escribe una búsqueda y pulsa «Buscar» para encontrar ofertas en LinkedIn, Indeed, Computrabajo y más."}
               </div>
             )}
 

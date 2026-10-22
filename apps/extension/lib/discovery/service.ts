@@ -84,7 +84,7 @@ export class DiscoveryService {
         sources.map((src) => this.scrapeWithQueue(query, filters, src)),
       );
 
-      const warnings: string[] = [];
+      const warnings = new Set<string>();
       const allJobs: DiscoveredJob[] = [];
       const seenIds = new Set<string>();
 
@@ -98,12 +98,17 @@ export class DiscoveryService {
         if (outcome.status === "rejected") {
           const message =
             outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason);
-          warnings.push(`${SOURCE_LABELS[src]}: ${message}`);
+          warnings.add(`${SOURCE_LABELS[src]}: ${message}`);
           console.error("[DiscoveryService] Error scraping", src, outcome.reason);
           continue;
         }
 
-        for (const job of outcome.value) {
+        const { jobs, warnings: sourceWarnings } = outcome.value;
+        for (const warning of sourceWarnings) {
+          warnings.add(`${SOURCE_LABELS[src]}: ${warning}`);
+        }
+
+        for (const job of jobs) {
           const saved = await this.putDiscoveredJob(job, query);
           if (seenIds.has(saved.id)) continue;
           seenIds.add(saved.id);
@@ -122,7 +127,7 @@ export class DiscoveryService {
         page,
         pageSize,
         hasMore: start + pageSize < allJobs.length,
-        ...(warnings.length > 0 ? { warnings } : {}),
+        ...(warnings.size > 0 ? { warnings: [...warnings] } : {}),
       };
     } finally {
       this.runningSearches.delete(searchId);
@@ -281,37 +286,62 @@ export class DiscoveryService {
 
   /**
    * Scrapea un portal (hasta MAX_PAGES_PER_SEARCH) respetando la cola.
-   * Devuelve ofertas crudas; la persistencia se hace en `search()`.
+   * Devuelve ofertas crudas y avisos; la persistencia se hace en `search()`.
    */
   private async scrapeWithQueue(
     query: string,
     filters: SearchFilters,
     source: Source,
-  ): Promise<ScrapedJob[]> {
+  ): Promise<{ jobs: ScrapedJob[]; warnings: string[] }> {
     const allJobs: ScrapedJob[] = [];
+    const warnings: string[] = [];
+    const seenUrls = new Set<string>();
     const maxPages =
       source === "linkedin" || source === "indeed" || source === "computrabajo"
         ? MAX_PAGES_PER_SEARCH
         : 1;
 
     for (let page = 0; page < maxPages; page++) {
-      const result = await discoveryQueue.enqueue<ScraperResult>(
-        source,
-        () =>
-          source === "linkedin"
-            ? scrapeLinkedIn(query, filters, page)
-            : scrapeSource(source, query, filters, page),
-        // Un timeout de LinkedIn no se arregla reintentando: evita 3 esperas de 20s.
-        { retries: source === "linkedin" ? 0 : 2 },
-      );
+      let result: ScraperResult;
+      try {
+        result = await discoveryQueue.enqueue<ScraperResult>(
+          source,
+          () =>
+            source === "linkedin"
+              ? scrapeLinkedIn(query, filters, page)
+              : scrapeSource(source, query, filters, page),
+          // Un timeout de LinkedIn no se arregla reintentando.
+          { retries: source === "linkedin" ? 0 : 2 },
+        );
+      } catch (error) {
+        // Si ya tenemos ofertas de páginas anteriores, conservarlas y avisar.
+        if (allJobs.length === 0) throw error;
+        warnings.push(
+          `No se pudo cargar la página ${page + 1}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+        break;
+      }
 
-      if (!result || !Array.isArray(result.jobs) || result.jobs.length === 0) break;
+      if (!result) break;
 
-      allJobs.push(...result.jobs);
+      for (const warning of result.warnings ?? []) {
+        warnings.push(warning);
+      }
+
+      if (!Array.isArray(result.jobs) || result.jobs.length === 0) break;
+
+      for (const job of result.jobs) {
+        if (seenUrls.has(job.url)) continue;
+        seenUrls.add(job.url);
+        allJobs.push(job);
+      }
+
       if (!result.hasMore) break;
     }
 
-    return allJobs;
+    return { jobs: allJobs, warnings };
   }
 
   /** Crea la postulación asociada a una oferta descubierta (idempotente por URL). */

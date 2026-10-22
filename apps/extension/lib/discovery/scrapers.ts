@@ -21,6 +21,8 @@ export interface ScraperResult {
   jobs: ScrapedJob[];
   hasMore: boolean;
   nextPageUrl?: string;
+  /** Avisos no fatales (p. ej. un portal no pudo leerse pero otro sí). */
+  warnings?: string[];
 }
 
 /** Normaliza salario a formato consistente. */
