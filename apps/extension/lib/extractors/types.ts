@@ -1,4 +1,4 @@
-import type { Source, WorkMode } from "@postulia/shared";
+import { detectWorkModeFromText, type Source, type WorkMode } from "@postulia/shared";
 
 export interface ExtractedJob {
   jobTitle: string | null;
@@ -62,17 +62,9 @@ function normalizeLabel(value: string): string {
     .replace(/_/g, " ");
 }
 
+/** Detecta la modalidad con la misma lógica que usa el descubrimiento. */
 export function detectWorkMode(text: string | null | undefined): WorkMode | null {
-  if (!text) return null;
-  const value = normalizeLabel(text);
-  if (value.includes("remot") || value.includes("teletrabajo") || value.includes("home office")) {
-    return "remote";
-  }
-  if (value.includes("hibrid")) return "hybrid";
-  if (value.includes("presencial") || value.includes("onsite") || value.includes("on-site")) {
-    return "onsite";
-  }
-  return null;
+  return detectWorkModeFromText(text)?.workMode ?? null;
 }
 
 export function detectContractType(text: string | null | undefined): string | null {

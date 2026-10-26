@@ -112,6 +112,36 @@ describe("extractJob", () => {
     expect(result?.missing).toEqual([]);
   });
 
+  it("no marca una oferta como remota por una mención suelta en la descripción", () => {
+    document.head.innerHTML = jsonLdScript({
+      "@type": "JobPosting",
+      title: "Backend Developer",
+      hiringOrganization: { name: "Acme" },
+      jobLocation: { address: { addressLocality: "Bogotá" } },
+      description: "<p>Nuestro remote team busca desarrolladores.</p>",
+    });
+
+    const result = extractJob("https://empleos.example.com/vacante/123", document);
+
+    expect(result?.workMode).toBeNull();
+  });
+
+  it("prioriza la modalidad del portal sobre la inferida del JSON-LD", () => {
+    document.head.innerHTML = jsonLdScript({
+      "@type": "JobPosting",
+      title: "Analista de datos",
+      hiringOrganization: { name: "Data Corp" },
+      description: "<p>100% remote</p>",
+    });
+    document.body.innerHTML = `
+      <span class="job-details-jobs-unified-top-card__workplace-type">Presencial</span>
+    `;
+
+    const result = extractJob("https://co.linkedin.com/jobs/view/4012345678/", document);
+
+    expect(result?.workMode).toBe("onsite");
+  });
+
   it("devuelve null cuando la página no parece una oferta", () => {
     document.title = "Mi blog personal";
     document.body.innerHTML = "<h1>Bienvenido a mi blog</h1><p>Sobre mí</p>";

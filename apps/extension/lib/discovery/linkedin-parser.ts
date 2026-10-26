@@ -6,6 +6,7 @@ import {
   type WorkMode,
 } from "@postulia/shared";
 import type { ScrapedJob } from "./scrapers.js";
+import { buildPortalLocation, resolveCountry } from "./location.js";
 
 export const LINKEDIN_ORIGIN = "https://www.linkedin.com";
 export const LINKEDIN_JOBS_PER_PAGE = 25;
@@ -18,7 +19,9 @@ const LINKEDIN_WORK_MODE: Record<WorkMode, string> = {
 };
 
 function addSearchFilters(params: URLSearchParams, filters: SearchFilters): void {
-  const location = filters.location?.trim();
+  // LinkedIn no reconoce el país en español: `location=Perú` devuelve ofertas
+  // de Estados Unidos. Se envía la ubicación normalizada (país en inglés).
+  const location = buildPortalLocation(filters.location);
   if (location) params.set("location", location);
 
   if (filters.postedWithinDays && filters.postedWithinDays > 0) {
@@ -30,7 +33,13 @@ function addSearchFilters(params: URLSearchParams, filters: SearchFilters): void
   }
 }
 
-/** URL de la página pública de resultados (la que usa la pestaña de respaldo). */
+/**
+ * URL de la página de resultados (la que usa la pestaña de respaldo).
+ *
+ * Se apunta directamente a `/jobs/search-results/`: LinkedIn redirige ahí desde
+ * `/jobs/search/` y en esa redirección pierde `f_WT`, con lo que la búsqueda
+ * dejaba de estar filtrada por modalidad.
+ */
 export function buildLinkedInSearchUrl(
   query: string,
   filters: SearchFilters,
@@ -41,7 +50,35 @@ export function buildLinkedInSearchUrl(
     start: String(page * LINKEDIN_JOBS_PER_PAGE),
   });
   addSearchFilters(params, filters);
-  return `${LINKEDIN_ORIGIN}/jobs/search/?${params.toString()}`;
+  return `${LINKEDIN_ORIGIN}/jobs/search-results/?${params.toString()}`;
+}
+
+/** Indica si la URL conserva el filtro nativo de modalidad pedido. */
+export function hasLinkedInWorkModeFilter(rawUrl: string, workMode: WorkMode): boolean {
+  try {
+    const values = new URL(rawUrl).searchParams
+      .getAll("f_WT")
+      .flatMap((value) => value.split(","))
+      .map((value) => value.trim());
+    return values.includes(LINKEDIN_WORK_MODE[workMode]);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Devuelve la URL sin `currentJobId`, que hace que LinkedIn abra la vista de
+ * detalle y oculte el listado. `undefined` si no hay nada que quitar.
+ */
+export function withoutCurrentJobId(rawUrl: string): string | undefined {
+  try {
+    const url = new URL(rawUrl);
+    if (!url.searchParams.has("currentJobId")) return undefined;
+    url.searchParams.delete("currentJobId");
+    return url.toString();
+  } catch {
+    return undefined;
+  }
 }
 
 /** URL del endpoint público que usa la propia web de LinkedIn para paginar. */
@@ -147,6 +184,7 @@ export function parseLinkedInJobsHtml(html: string, page: number = 0): ScrapedJo
       url,
       source: "linkedin",
       location: location || undefined,
+      country: resolveCountry(location)?.code,
       workMode: workMode?.workMode,
       workModeSource: workMode?.source ?? "unknown",
       workModeConfidence: workMode?.confidence ?? "low",

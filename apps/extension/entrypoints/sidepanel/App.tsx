@@ -37,6 +37,7 @@ import { FaIcon } from "~/components/FaIcon";
 import { StatusBadge } from "~/components/StatusBadge";
 import { Button, Spinner, cn } from "~/components/ui";
 import { useApplications, useExtensionStatus, useReminders } from "~/lib/hooks";
+import { isLocationFilterActive, resolveCountry } from "~/lib/discovery/location";
 import type { ExtractedJobResult } from "~/lib/extractors/types";
 import {
   sendMessage,
@@ -127,6 +128,8 @@ export function SidePanelApp() {
   const [discoverLoading, setDiscoverLoading] = useState(false);
   const [discoverError, setDiscoverError] = useState<string | null>(null);
   const [discoverWarnings, setDiscoverWarnings] = useState<string[]>([]);
+  const [discoverHiddenUnknown, setDiscoverHiddenUnknown] = useState(0);
+  const [discoverHiddenUnknownLocation, setDiscoverHiddenUnknownLocation] = useState(0);
   const [discoverPage, setDiscoverPage] = useState(1);
   const [discoverTotal, setDiscoverTotal] = useState(0);
   const [discoverHistory, setDiscoverHistory] = useState<
@@ -265,6 +268,8 @@ export function SidePanelApp() {
       setDiscoverPage(1);
       setDiscoverResults([]);
       setDiscoverTotal(0);
+      setDiscoverHiddenUnknown(0);
+      setDiscoverHiddenUnknownLocation(0);
     }
 
     try {
@@ -284,6 +289,8 @@ export function SidePanelApp() {
       setDiscoverResults(result.jobs);
       setDiscoverTotal(result.total);
       setDiscoverPage(result.page);
+      setDiscoverHiddenUnknown(result.hiddenUnknownWorkMode ?? 0);
+      setDiscoverHiddenUnknownLocation(result.hiddenUnknownLocation ?? 0);
       setDiscoverWarnings(result.warnings ?? []);
       void loadDiscoverHistory();
     } catch (error) {
@@ -703,7 +710,11 @@ export function SidePanelApp() {
                         aria-label="Limpiar ubicación"
                         title="Limpiar ubicación"
                         onClick={() =>
-                          setDiscoverFilters({ ...discoverFilters, location: undefined })
+                          setDiscoverFilters({
+                            ...discoverFilters,
+                            location: undefined,
+                            includeUnknownLocation: undefined,
+                          })
                         }
                         className="absolute right-1 top-1/2 -translate-y-1/2 rounded px-1 leading-none text-slate-400 hover:bg-slate-100 hover:text-slate-600"
                       >
@@ -711,6 +722,37 @@ export function SidePanelApp() {
                       </button>
                     )}
                   </div>
+
+                  {discoverFilters.location?.trim() &&
+                    isLocationFilterActive(discoverFilters.location) &&
+                    !resolveCountry(discoverFilters.location) && (
+                      <span
+                        className="rounded bg-amber-50 px-2 py-1 text-[11px] text-amber-800"
+                        title="Los portales se buscan por país; sin uno reconocido se usa Colombia."
+                      >
+                        País no reconocido: se buscará en Colombia
+                      </span>
+                    )}
+
+                  {isLocationFilterActive(discoverFilters.location) && (
+                    <label
+                      className="inline-flex items-center gap-1.5 px-2 py-1 rounded border border-slate-300 bg-white text-slate-600 cursor-pointer select-none"
+                      title="Muestra también las ofertas en las que el portal no indica la ubicación."
+                    >
+                      <input
+                        type="checkbox"
+                        checked={discoverFilters.includeUnknownLocation ?? false}
+                        onChange={(e) =>
+                          setDiscoverFilters({
+                            ...discoverFilters,
+                            includeUnknownLocation: e.target.checked || undefined,
+                          })
+                        }
+                        className="h-3 w-3 rounded border-slate-300 text-brand-600"
+                      />
+                      Incluir sin ubicación
+                    </label>
+                  )}
 
                   <select
                     value={discoverFilters.workMode || ""}
@@ -722,6 +764,10 @@ export function SidePanelApp() {
                           value === "remote" || value === "hybrid" || value === "onsite"
                             ? value
                             : undefined,
+                        includeUnknownWorkMode:
+                          value === "remote" || value === "hybrid" || value === "onsite"
+                            ? discoverFilters.includeUnknownWorkMode
+                            : undefined,
                       });
                     }}
                     className="px-2 py-1 rounded border border-slate-300 bg-white text-slate-700"
@@ -731,6 +777,26 @@ export function SidePanelApp() {
                     <option value="hybrid">Híbrido</option>
                     <option value="onsite">Presencial</option>
                   </select>
+
+                  {discoverFilters.workMode && (
+                    <label
+                      className="inline-flex items-center gap-1.5 px-2 py-1 rounded border border-slate-300 bg-white text-slate-600 cursor-pointer select-none"
+                      title="Muestra también las ofertas en las que el portal no indica la modalidad."
+                    >
+                      <input
+                        type="checkbox"
+                        checked={discoverFilters.includeUnknownWorkMode ?? false}
+                        onChange={(e) =>
+                          setDiscoverFilters({
+                            ...discoverFilters,
+                            includeUnknownWorkMode: e.target.checked || undefined,
+                          })
+                        }
+                        className="h-3 w-3 rounded border-slate-300 text-brand-600"
+                      />
+                      Incluir sin modalidad
+                    </label>
+                  )}
 
                   <select
                     value={discoverFilters.postedWithinDays || ""}
@@ -807,6 +873,23 @@ export function SidePanelApp() {
               </div>
             )}
 
+            {discoverHiddenUnknown > 0 && discoverFilters.workMode && (
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-xs text-slate-600">
+                Se ocultaron {discoverHiddenUnknown} oferta
+                {discoverHiddenUnknown === 1 ? "" : "s"} porque el portal no confirmó la modalidad.
+                Marca «Incluir sin modalidad» para verlas.
+              </div>
+            )}
+
+            {discoverHiddenUnknownLocation > 0 &&
+              isLocationFilterActive(discoverFilters.location) && (
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-xs text-slate-600">
+                  Se ocultaron {discoverHiddenUnknownLocation} oferta
+                  {discoverHiddenUnknownLocation === 1 ? "" : "s"} porque el portal no indicó la
+                  ubicación. Marca «Incluir sin ubicación» para verlas.
+                </div>
+              )}
+
             {discoverResults.length === 0 && !discoverLoading && !discoverError && (
               <div className="rounded-lg border border-dashed border-slate-300 bg-white px-4 py-6 text-center text-sm text-slate-400">
                 {discoverWarnings.length > 0
@@ -848,7 +931,7 @@ export function SidePanelApp() {
                             discoverFilters.workMode && (
                               <span
                                 className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-slate-100 text-slate-500"
-                                title="La oferta no indica la modalidad; se mantiene para no ocultar resultados."
+                                title="La oferta no indica la modalidad; la incluiste manualmente en la búsqueda."
                               >
                                 <FaIcon icon={faCircleInfo} size={10} />
                                 Modalidad sin especificar

@@ -7,7 +7,11 @@ import {
   type WorkModeConfidence,
   type WorkModeSource,
 } from "@postulia/shared";
-import { hashJobUrl } from "./queue.js";
+import { buildIndeedSearchUrl } from "./indeed-url.js";
+import { buildComputrabajoSearchUrl } from "./computrabajo-url.js";
+import { hasComputrabajoNextPage, parseComputrabajoHtml } from "./computrabajo-parser.js";
+import { resolveCountry } from "./location.js";
+import { normalizeSalary } from "./salary.js";
 
 export interface ScrapedJob {
   jobTitle: string;
@@ -15,6 +19,8 @@ export interface ScrapedJob {
   url: string;
   source: Source;
   location?: string;
+  /** País del portal (ISO) cuando el dominio lo determina. */
+  country?: string;
   workMode?: WorkMode;
   workModeSource?: WorkModeSource;
   workModeConfidence?: WorkModeConfidence;
@@ -32,16 +38,6 @@ export interface ScraperResult {
   nextPageUrl?: string;
   /** Avisos no fatales (p. ej. un portal no pudo leerse pero otro sí). */
   warnings?: string[];
-}
-
-/** Normaliza salario a formato consistente. */
-function normalizeSalary(text: string | undefined): { salary?: string; currency?: string } {
-  if (!text) return {};
-  const cleaned = text.replace(/[^\d.,$\s€£]/g, "").trim();
-  const currencyMatch = cleaned.match(/[$€£]|(?:USD|EUR|GBP|COP|MXN|ARS|CLP|PEN|UYU)/i);
-  const currency = currencyMatch?.[0]?.toUpperCase();
-  const salary = cleaned.replace(/[$€£]/g, "").trim() || undefined;
-  return { salary, currency };
 }
 
 /** Scraper base con lógica común. */
@@ -74,17 +70,9 @@ export async function scrapeIndeed(
   filters: SearchFilters,
   page: number = 0,
 ): Promise<ScraperResult> {
-  const baseUrl = "https://co.indeed.com/jobs";
-  const days =
-    filters.postedWithinDays && filters.postedWithinDays > 0 ? filters.postedWithinDays : 7;
-  const params = new URLSearchParams({
-    q: query,
-    l: filters.location ?? "",
-    start: String(page * 10),
-    sort: "date",
-    fromage: String(days),
-  });
-  const url = `${baseUrl}?${params.toString()}`;
+  const url = buildIndeedSearchUrl(query, filters, page);
+  const country = resolveCountry(filters.location);
+  const origin = new URL(url).origin;
 
   const html = await fetchHtml(url);
   const $ = cheerio.load(html);
@@ -119,17 +107,27 @@ export async function scrapeIndeed(
     const workMode =
       detectWorkModeFromText(`${title} ${location}`) ??
       detectWorkModeFromText(snippet, { requireExplicit: true });
+    // Indeed aplica el filtro de modalidad en la propia búsqueda. Si la tarjeta
+    // no lo repite, se usa el filtro solicitado en lugar de descartar la oferta.
+    const portalWorkMode =
+      filters.workMode === "remote" || filters.workMode === "hybrid" ? filters.workMode : undefined;
+    const resolvedWorkMode =
+      workMode ??
+      (portalWorkMode
+        ? { workMode: portalWorkMode, source: "portal" as const, confidence: "medium" as const }
+        : undefined);
 
     if (title && company) {
       jobs.push({
         jobTitle: title,
         company,
-        url: `https://co.indeed.com/viewjob?jk=${jk}`,
+        url: `${origin}/viewjob?jk=${jk}`,
         source: "indeed",
         location: location || undefined,
-        workMode: workMode?.workMode,
-        workModeSource: workMode?.source ?? "unknown",
-        workModeConfidence: workMode?.confidence ?? "low",
+        country: country?.code,
+        workMode: resolvedWorkMode?.workMode,
+        workModeSource: resolvedWorkMode?.source ?? "unknown",
+        workModeConfidence: resolvedWorkMode?.confidence ?? "low",
         salary,
         currency,
         postedAt: undefined, // Indeed no expone fecha fácilmente en listado
@@ -150,74 +148,29 @@ export async function scrapeIndeed(
 /** Scraper para Computrabajo. */
 export async function scrapeComputrabajo(
   query: string,
-  _filters: SearchFilters,
-  page: number = 1,
+  filters: SearchFilters,
+  page: number = 0,
 ): Promise<ScraperResult> {
-  const baseUrl = "https://co.computrabajo.com/ofertas-de-trabajo/";
-  const params = new URLSearchParams({
-    q: query,
-    p: String(page),
-  });
-  const url = `${baseUrl}?${params.toString()}`;
+  const country = resolveCountry(filters.location);
+  if (country && !country.computrabajoHost) {
+    return {
+      jobs: [],
+      hasMore: false,
+      warnings: [`${country.nameEs} no tiene portal en Computrabajo.`],
+    };
+  }
+
+  const url = buildComputrabajoSearchUrl(query, filters, page);
+  if (!url) return { jobs: [], hasMore: false };
+
+  const host = country?.computrabajoHost ?? "co.computrabajo.com";
 
   const html = await fetchHtml(url);
-  const $ = cheerio.load(html);
-
-  const jobs: ScrapedJob[] = [];
-
-  // Computrabajo: cada oferta está en .box_offer o similar
-  $(".box_offer, .offer, [data-id]").each((index, element) => {
-    const $el = $(element);
-
-    // Título y URL
-    const linkEl = $el.find("h2 a, h3 a, .offer-title a").first();
-    const title = linkEl.text().trim();
-    const href = linkEl.attr("href");
-
-    if (!title || !href) return;
-
-    // Empresa
-    const companyEl = $el.find(".company a, .fc_base a, [data-company]").first();
-    const company = companyEl.text().trim();
-
-    // Ubicación
-    const locationEl = $el.find(".location, .fs13, .fc_base").first();
-    const location = locationEl.text().trim();
-
-    // Salario
-    const salaryEl = $el.find(".salary, .fs16").first();
-    const { salary, currency } = normalizeSalary(salaryEl.text());
-
-    // Modalidad
-    const snippet = $el.text();
-    const workMode =
-      detectWorkModeFromText(`${title} ${location}`) ??
-      detectWorkModeFromText(snippet, { requireExplicit: true });
-
-    const fullUrl = href.startsWith("http") ? href : `https://co.computrabajo.com${href}`;
-
-    if (title && company) {
-      jobs.push({
-        jobTitle: title,
-        company,
-        url: fullUrl,
-        source: "computrabajo",
-        location: location || undefined,
-        workMode: workMode?.workMode,
-        workModeSource: workMode?.source ?? "unknown",
-        workModeConfidence: workMode?.confidence ?? "low",
-        salary,
-        currency,
-        postedAt: undefined,
-        confidence: title && company && location ? "high" : "medium",
-        pageNumber: page,
-        positionInPage: index,
-      });
-    }
-  });
-
-  // Paginación
-  const hasMore = $(".pagination .next, .pagination a[rel='next']").length > 0 && jobs.length > 0;
+  const jobs = parseComputrabajoHtml(html, page, `https://${host}`).map((job) => ({
+    ...job,
+    country: country?.code,
+  }));
+  const hasMore = jobs.length > 0 && hasComputrabajoNextPage(html);
 
   return { jobs, hasMore };
 }

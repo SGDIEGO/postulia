@@ -4,6 +4,18 @@ import type { Source, WorkMode, WorkModeConfidence, WorkModeSource } from "./app
 export interface SearchFilters {
   location?: string;
   workMode?: WorkMode;
+  /**
+   * Cuando se filtra por modalidad, incluir también las ofertas en las que el
+   * portal no confirmó ninguna. Por defecto se ocultan: mostrarlas mezcladas
+   * hace que aparezcan ofertas presenciales en búsquedas de remoto.
+   */
+  includeUnknownWorkMode?: boolean;
+  /**
+   * Cuando se filtra por ubicación, incluir también las ofertas en las que el
+   * portal no indicó ninguna. Por defecto se ocultan: si el portal ignoró la
+   * ubicación, sus resultados son de otro país.
+   */
+  includeUnknownLocation?: boolean;
   postedWithinDays?: number;
   contractType?: string;
 }
@@ -18,6 +30,13 @@ export interface DiscoveredJob {
   url: string;
   urlHash: string;
   location?: string;
+  /**
+   * País del portal que publicó la oferta (ISO 3166-1 alfa-2). Los portales son
+   * nacionales, así que el dominio dice el país aunque la oferta solo indique la
+   * ciudad. Sirve para no descartar ofertas de provincias que no están en la
+   * lista de ciudades conocidas.
+   */
+  country?: string;
   workMode?: WorkMode;
   /** De dónde salió la modalidad: portal, JSON-LD, texto o desconocida. */
   workModeSource?: WorkModeSource;
@@ -70,4 +89,24 @@ export interface DiscoverySearchResult {
   hasMore: boolean;
   /** Portales que fallaron durante la búsqueda (la búsqueda sigue con el resto). */
   warnings?: string[];
+  /** Ofertas descartadas por no tener modalidad confirmada. */
+  hiddenUnknownWorkMode?: number;
+  /** Ofertas descartadas por no indicar ubicación. */
+  hiddenUnknownLocation?: number;
+}
+
+/**
+ * Decide si una oferta pasa el filtro de modalidad.
+ *
+ * El filtro es estricto: una oferta con modalidad desconocida solo se incluye
+ * si el usuario lo pide explícitamente. Así una búsqueda de «Remoto» no
+ * devuelve ofertas que en el portal son presenciales.
+ */
+export function matchesWorkModeFilter(
+  job: Pick<DiscoveredJob, "workMode">,
+  filters: Pick<SearchFilters, "workMode" | "includeUnknownWorkMode">,
+): boolean {
+  if (!filters.workMode) return true;
+  if (job.workMode === filters.workMode) return true;
+  return !job.workMode && filters.includeUnknownWorkMode === true;
 }

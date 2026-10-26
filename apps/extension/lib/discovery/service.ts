@@ -1,6 +1,7 @@
 import {
   nowIso,
   addDays,
+  matchesWorkModeFilter,
   type Source,
   type SearchFilters,
   type DiscoveredJob,
@@ -11,6 +12,7 @@ import {
 } from "@postulia/shared";
 import { db } from "~/lib/db";
 import { discoveryQueue, cleanupDiscoveredJobs } from "./queue.js";
+import { activeLocationFilter, matchesLocationFilter } from "./location.js";
 import { scrapeLinkedIn } from "./linkedin.js";
 import { scrapeSource } from "./scrapers.js";
 import type { ScrapedJob, ScraperResult } from "./scrapers.js";
@@ -116,9 +118,26 @@ export class DiscoveryService {
         }
       }
 
-      const matchingJobs = filters.workMode
-        ? allJobs.filter((job) => !job.workMode || job.workMode === filters.workMode)
-        : allJobs;
+      const locationFilter = activeLocationFilter(filters);
+      const matchesLocation = (job: DiscoveredJob): boolean => {
+        if (!locationFilter) return true;
+        if (matchesLocationFilter(job.location, locationFilter, job.country)) return true;
+        return !job.location && filters.includeUnknownLocation === true;
+      };
+      const matchingJobs = allJobs.filter(
+        (job) => matchesWorkModeFilter(job, filters) && matchesLocation(job),
+      );
+      const hiddenUnknownWorkMode =
+        filters.workMode && !filters.includeUnknownWorkMode
+          ? allJobs.filter((job) => !job.workMode).length
+          : 0;
+      const hiddenUnknownLocation =
+        locationFilter && !filters.includeUnknownLocation
+          ? allJobs.filter(
+              (job) =>
+                !job.location && !matchesLocationFilter(undefined, locationFilter, job.country),
+            ).length
+          : 0;
 
       await this.updateSearchHistoryResultCount(query, matchingJobs.length);
 
@@ -131,6 +150,8 @@ export class DiscoveryService {
         page,
         pageSize,
         hasMore: start + pageSize < matchingJobs.length,
+        ...(hiddenUnknownWorkMode > 0 ? { hiddenUnknownWorkMode } : {}),
+        ...(hiddenUnknownLocation > 0 ? { hiddenUnknownLocation } : {}),
         ...(warnings.size > 0 ? { warnings: [...warnings] } : {}),
       };
     } finally {
@@ -154,16 +175,17 @@ export class DiscoveryService {
     if (params.source) {
       collection = collection.filter((job) => job.source === params.source);
     }
-    if (params.filters?.location) {
-      const loc = params.filters.location!.toLowerCase();
-      collection = collection.filter((job) => job.location?.toLowerCase().includes(loc) ?? false);
+    const locationFilter = activeLocationFilter(params.filters ?? {});
+    if (locationFilter) {
+      collection = collection.filter((job) => {
+        if (matchesLocationFilter(job.location, locationFilter, job.country)) return true;
+        return !job.location && params.filters?.includeUnknownLocation === true;
+      });
     }
     if (params.filters?.workMode) {
-      // Las ofertas sin modalidad detectada no se ocultan: el filtro es una
-      // ayuda, no una afirmación de que el portal haya clasificado la oferta.
-      collection = collection.filter(
-        (job) => !job.workMode || job.workMode === params.filters!.workMode,
-      );
+      // Filtro estricto: sin modalidad confirmada no hay coincidencia. Las
+      // ofertas sin modalidad solo se muestran si el usuario lo pide.
+      collection = collection.filter((job) => matchesWorkModeFilter(job, params.filters!));
     }
     if (params.filters?.postedWithinDays) {
       const cutoff = new Date(

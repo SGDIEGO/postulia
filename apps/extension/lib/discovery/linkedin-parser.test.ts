@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   buildLinkedInGuestSearchUrl,
   buildLinkedInSearchUrl,
+  hasLinkedInWorkModeFilter,
   parseLinkedInJobsHtml,
+  withoutCurrentJobId,
 } from "./linkedin-parser.js";
 
 function cardHtml(options: {
@@ -55,7 +57,7 @@ describe("buildLinkedInSearchUrl", () => {
       ),
     );
 
-    expect(url.searchParams.get("location")).toBe("Bogotá");
+    expect(url.searchParams.get("location")).toBe("Bogotá, Colombia");
     expect(url.searchParams.get("f_TPR")).toBe("r604800");
     expect(url.searchParams.get("f_WT")).toBe("2");
     expect(url.searchParams.get("start")).toBe("50");
@@ -68,6 +70,97 @@ describe("buildLinkedInSearchUrl", () => {
     expect(mode("onsite")).toBe("1");
     expect(mode("remote")).toBe("2");
     expect(mode("hybrid")).toBe("3");
+  });
+
+  it("apunta a la página de resultados actual y evita la redirección que pierde f_WT", () => {
+    const url = new URL(buildLinkedInSearchUrl("nodejs", { workMode: "remote" }, 0));
+
+    expect(url.pathname).toBe("/jobs/search-results/");
+    expect(url.searchParams.get("f_WT")).toBe("2");
+  });
+
+  it("envía el país en inglés, que es lo único que LinkedIn geocodifica", () => {
+    const url = new URL(buildLinkedInSearchUrl("nodejs", { location: "Perú" }, 0));
+
+    expect(url.searchParams.get("location")).toBe("Peru");
+  });
+
+  it("conserva la ciudad y añade el país en inglés", () => {
+    const url = new URL(buildLinkedInSearchUrl("nodejs", { location: "Lima" }, 0));
+
+    expect(url.searchParams.get("location")).toBe("Lima, Peru");
+  });
+
+  it("no envía ubicación cuando el filtro es una modalidad", () => {
+    const url = new URL(buildLinkedInSearchUrl("nodejs", { location: "Remoto" }, 0));
+
+    expect(url.searchParams.has("location")).toBe(false);
+  });
+});
+
+describe("hasLinkedInWorkModeFilter", () => {
+  it("reconoce el filtro cuando sobrevive a la redirección", () => {
+    expect(
+      hasLinkedInWorkModeFilter(
+        "https://www.linkedin.com/jobs/search-results/?keywords=dev&f_WT=2",
+        "remote",
+      ),
+    ).toBe(true);
+  });
+
+  it("reconoce varios valores separados por coma", () => {
+    expect(
+      hasLinkedInWorkModeFilter(
+        "https://www.linkedin.com/jobs/search-results/?keywords=dev&f_WT=2%2C3",
+        "hybrid",
+      ),
+    ).toBe(true);
+  });
+
+  it("devuelve false cuando LinkedIn descartó el filtro", () => {
+    expect(
+      hasLinkedInWorkModeFilter(
+        "https://www.linkedin.com/jobs/search-results/?currentJobId=4481291698&keywords=dev&start=0",
+        "remote",
+      ),
+    ).toBe(false);
+  });
+
+  it("no confunde modalidades distintas", () => {
+    expect(
+      hasLinkedInWorkModeFilter(
+        "https://www.linkedin.com/jobs/search-results/?keywords=dev&f_WT=1",
+        "remote",
+      ),
+    ).toBe(false);
+  });
+
+  it("tolera URLs inválidas", () => {
+    expect(hasLinkedInWorkModeFilter("no-es-una-url", "remote")).toBe(false);
+  });
+});
+
+describe("withoutCurrentJobId", () => {
+  it("quita la oferta seleccionada para que se vea el listado", () => {
+    const cleaned = withoutCurrentJobId(
+      "https://www.linkedin.com/jobs/search-results/?currentJobId=4481291698&keywords=dev&f_WT=2",
+    );
+
+    expect(cleaned).toBeDefined();
+    const url = new URL(cleaned!);
+    expect(url.searchParams.has("currentJobId")).toBe(false);
+    expect(url.searchParams.get("f_WT")).toBe("2");
+    expect(url.searchParams.get("keywords")).toBe("dev");
+  });
+
+  it("no toca una URL que ya viene limpia", () => {
+    expect(
+      withoutCurrentJobId("https://www.linkedin.com/jobs/search-results/?keywords=dev"),
+    ).toBeUndefined();
+  });
+
+  it("tolera URLs inválidas", () => {
+    expect(withoutCurrentJobId("no-es-una-url")).toBeUndefined();
   });
 });
 
@@ -148,6 +241,20 @@ describe("parseLinkedInJobsHtml", () => {
       workMode: "hybrid",
       workModeSource: "portal",
       workModeConfidence: "high",
+    });
+  });
+
+  it("detecta la modalidad incluida en la ubicación de la tarjeta", () => {
+    const html = cardHtml({
+      id: "1234567890",
+      title: "Backend Developer",
+      company: "Acme",
+      location: "Bogotá, Colombia (Remote)",
+    });
+
+    expect(parseLinkedInJobsHtml(html)[0]).toMatchObject({
+      workMode: "remote",
+      workModeSource: "text",
     });
   });
 

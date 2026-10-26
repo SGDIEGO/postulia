@@ -1,11 +1,5 @@
-import type { WorkMode } from "@postulia/shared";
-import {
-  cleanText,
-  detectContractType,
-  detectWorkMode,
-  stripHtml,
-  type ExtractedJob,
-} from "./types";
+import { detectWorkModeFromText, type WorkMode } from "@postulia/shared";
+import { cleanText, detectContractType, stripHtml, type ExtractedJob } from "./types";
 
 interface JsonLdNode {
   "@type"?: string | string[];
@@ -128,19 +122,22 @@ export function extractFromJsonLd(doc: Document): Partial<ExtractedJob> | null {
 
   const title = readString(posting["title"]);
   const company = readString(posting["hiringOrganization"]);
-  const location = readLocation(posting["jobLocation"]) ?? readLocation(posting["jobLocationType"]);
+  const location = readLocation(posting["jobLocation"]);
   const { salary, currency } = readSalary(posting["baseSalary"]);
   const employmentType = readString(posting["employmentType"]);
+
+  const description = typeof posting["description"] === "string" ? posting["description"] : null;
+  const strippedDescription = stripHtml(description);
 
   const remoteHint =
     typeof posting["jobLocationType"] === "string" &&
     (posting["jobLocationType"] as string).toUpperCase().includes("TELECOMMUTE");
 
+  // Solo se infiere de la descripción con frases explícitas: una mención
+  // suelta a «remoto» en el texto no convierte la oferta en remota.
   const workMode: WorkMode | null = remoteHint
     ? "remote"
-    : detectWorkMode(
-        typeof posting["description"] === "string" ? (posting["description"] as string) : null,
-      );
+    : (detectWorkModeFromText(strippedDescription, { requireExplicit: true })?.workMode ?? null);
 
   return {
     jobTitle: title,
@@ -150,9 +147,7 @@ export function extractFromJsonLd(doc: Document): Partial<ExtractedJob> | null {
     salary,
     currency,
     contractType: detectContractType(employmentType),
-    description: stripHtml(
-      typeof posting["description"] === "string" ? posting["description"] : null,
-    ),
+    description: strippedDescription,
     postedAt: readString(posting["datePosted"]),
   };
 }

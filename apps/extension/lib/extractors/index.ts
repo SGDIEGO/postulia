@@ -66,6 +66,10 @@ export function extractJob(url: string, doc: Document): ExtractedJobResult | nul
 
   const merged = mergeExtractions([fromJsonLd, fromAdapter, fromGeneric], base);
 
+  // El portal es la fuente más fiable para la modalidad: su etiqueta gana
+  // sobre la inferencia del JSON-LD o del texto genérico.
+  merged.workMode = fromAdapter.workMode ?? fromJsonLd.workMode ?? fromGeneric.workMode ?? null;
+
   // La URL canónica del adaptador (por ejemplo con el id limpio) tiene prioridad.
   if (fromAdapter.url) merged.url = canonicalJobUrl(new URL(fromAdapter.url));
   merged.url = normalizeJobUrl(merged.url);
