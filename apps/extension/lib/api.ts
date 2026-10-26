@@ -1,5 +1,5 @@
 import type { ApiErrorBody, AuthSession } from "@postulia/shared";
-import { getSettings, updateSettings, type PostuliaSettings } from "./settings";
+import { clearSession, getSettings, updateSettings, type PostuliaSettings } from "./settings";
 
 export class ApiError extends Error {
   readonly status: number;
@@ -49,8 +49,18 @@ async function performRequest(
   });
 }
 
+/** Renovación en curso: evita que dos peticiones quemen el mismo refresh token. */
+let refreshPromise: Promise<string | null> | null = null;
+
 /** Intenta renovar el token de acceso con el de refresco. */
-export async function refreshSession(): Promise<string | null> {
+export function refreshSession(): Promise<string | null> {
+  refreshPromise ??= refreshSessionInternal().finally(() => {
+    refreshPromise = null;
+  });
+  return refreshPromise;
+}
+
+async function refreshSessionInternal(): Promise<string | null> {
   const settings = await getSettings();
   if (!settings.apiUrl || !settings.refreshToken) return null;
 
@@ -60,15 +70,14 @@ export async function refreshSession(): Promise<string | null> {
       body: { refreshToken: settings.refreshToken },
     });
 
-    if (!response.ok) {
-      await updateSettings({
-        accessToken: null,
-        refreshToken: null,
-        accessTokenExpiresAt: null,
-        user: null,
-      });
+    if (response.status === 400 || response.status === 401 || response.status === 403) {
+      // El refresh token ya no es válido (revocado o expirado): hay que
+      // volver a iniciar sesión. Un 5xx o un fallo de red no borra la sesión.
+      await clearSession();
       return null;
     }
+
+    if (!response.ok) return null;
 
     const session = await parse<AuthSession>(response);
     await updateSettings({
@@ -79,6 +88,7 @@ export async function refreshSession(): Promise<string | null> {
     });
     return session.accessToken;
   } catch {
+    // Sin conexión: conservamos los tokens para reintentar más adelante.
     return null;
   }
 }
@@ -106,8 +116,15 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   if (needsAuth && (!token || tokenIsExpired(settings.accessTokenExpiresAt))) {
     token = await refreshSession();
     settings = await getSettings();
-    if (!token && !settings.refreshToken) {
-      throw new ApiError(401, "no_session", "Inicia sesión para sincronizar");
+    if (!token) {
+      if (!settings.refreshToken) {
+        throw new ApiError(401, "no_session", "Inicia sesión para sincronizar");
+      }
+      throw new ApiError(
+        0,
+        "network_error",
+        "No se pudo renovar la sesión. Revisa tu conexión e inténtalo de nuevo.",
+      );
     }
   }
 

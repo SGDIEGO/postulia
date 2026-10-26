@@ -79,7 +79,7 @@ npm run build -w @postulia/extension
 ### Tests y verificación
 
 ```bash
-npm test                   # shared (15) + API (7) + extensión (15)
+npm test                   # shared (20) + API (7) + extensión (89)
 npm run typecheck
 npm run build              # shared + API + extensión
 ```
@@ -96,10 +96,16 @@ La API usa un cliente Prisma falso en memoria para las pruebas de integración: 
 
 ### Sincronización
 
-- Sin sesión, todo funciona en local.
+- **Por defecto todo es local**: sin URL de servidor no hay cuenta, no se envía nada y los datos viven en IndexedDB.
+- La API es **opcional y autoalojada**. Puedes conectarla desde **Ajustes → Sincronización opcional**.
 - Al iniciar sesión, `syncNow()` sube los cambios pendientes y baja los del servidor.
 - Sincronización automática cada 5 minutos (se puede desactivar en Ajustes) y sincronización manual desde el icono.
 - Los borrados son blandos (`deletedAt`) para propagarse entre dispositivos.
+- Las alertas de búsqueda, los recordatorios y la limpieza del descubrimiento funcionan también sin sesión.
+
+## Privacidad
+
+Postulia no incluye telemetría ni analítica y no opera un servidor propio. Sin configurar una API, ningún dato sale del navegador. Consulta la [política de privacidad](PRIVACY.md) para el detalle de datos, permisos, retención y borrado.
 
 ## Despliegue con Docker y HTTPS
 
@@ -176,6 +182,10 @@ Todas las rutas (salvo auth y health) requieren `Authorization: Bearer <accessTo
 | POST                  | `/api/sync/push`                | Subir cambios locales                     |
 | GET                   | `/api/sync/pull?since=`         | Bajar cambios del servidor                |
 | GET                   | `/api/stats`                    | Estadísticas del usuario                  |
+
+## Publicación en Chrome Web Store
+
+Consulta [docs/chrome-web-store.md](docs/chrome-web-store.md) para la ficha, la justificación de permisos, las prácticas de privacidad y el checklist de QA. La build de tienda funciona sin servidor; la sincronización con la API es opcional y autoalojada.
 
 ## Limitaciones conocidas
 

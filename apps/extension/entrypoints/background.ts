@@ -2,7 +2,7 @@ import { defineBackground } from "wxt/utils/define-background";
 import { browser } from "wxt/browser";
 import { SYNC_DEFAULTS, type ApplicationStatus } from "@postulia/shared";
 import { db } from "~/lib/db";
-import { apiRequest, ApiError } from "~/lib/api";
+import { apiRequest } from "~/lib/api";
 import { checkDueReminders, remindersSummary } from "~/lib/notifications";
 import { discoveryService } from "~/lib/discovery/service.js";
 import {
@@ -12,7 +12,7 @@ import {
   pendingChangesCount,
   updateApplication,
 } from "~/lib/repository";
-import { getSettings, hasSession, updateSettings } from "~/lib/settings";
+import { getSettings, hasSession } from "~/lib/settings";
 import { syncNow } from "~/lib/sync";
 import type {
   BackgroundRequest,
@@ -32,21 +32,17 @@ async function scheduleAlarms(): Promise<void> {
 
   await browser.alarms.create(REMINDER_ALARM, { periodInMinutes: 30 });
 
+  // Las alertas y la limpieza del descubrimiento son funciones locales: deben
+  // programarse siempre, haya o no sesión de sincronización.
+  await browser.alarms.create(DISCOVERY_ALARM, { periodInMinutes: 60 * 24 }); // diario
+  await browser.alarms.create(DISCOVERY_CLEANUP_ALARM, { periodInMinutes: 60 * 24 }); // diario
+
   if (settings.syncEnabled && hasSession(settings)) {
     await browser.alarms.create(SYNC_ALARM, {
       periodInMinutes: SYNC_DEFAULTS.intervalMinutes,
     });
   } else {
     await browser.alarms.clear(SYNC_ALARM);
-  }
-
-  // Alarmas de descubrimiento (solo si hay sesión)
-  if (hasSession(settings)) {
-    await browser.alarms.create(DISCOVERY_ALARM, { periodInMinutes: 60 * 24 }); // diario
-    await browser.alarms.create(DISCOVERY_CLEANUP_ALARM, { periodInMinutes: 60 * 24 }); // diario
-  } else {
-    await browser.alarms.clear(DISCOVERY_ALARM);
-    await browser.alarms.clear(DISCOVERY_CLEANUP_ALARM);
   }
 }
 
@@ -203,6 +199,11 @@ export default defineBackground(() => {
           return { notified: count };
         }
 
+        case "postulia:alarms:reschedule": {
+          await scheduleAlarms();
+          return { ok: true };
+        }
+
         case "postulia:open-sidepanel": {
           const tabId = sender?.tab?.id;
           const open = (
@@ -303,18 +304,6 @@ export default defineBackground(() => {
     const settings = await getSettings();
     if (settings.syncEnabled && hasSession(settings)) {
       await syncNow();
-    }
-  })();
-
-  /* Avisa en el log si el token dejó de ser válido. */
-  void (async () => {
-    try {
-      const settings = await getSettings();
-      if (settings.apiUrl && settings.refreshToken && !settings.user) {
-        await updateSettings({ lastSyncError: "Vuelve a iniciar sesión para sincronizar" });
-      }
-    } catch (error) {
-      if (error instanceof ApiError) console.warn("Postulia:", error.message);
     }
   })();
 });

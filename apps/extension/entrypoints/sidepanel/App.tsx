@@ -386,18 +386,20 @@ export function SidePanelApp() {
           </div>
         </div>
         <div className="flex items-center gap-1 shrink-0">
-          <button
-            type="button"
-            onClick={() => void syncNow()}
-            className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100"
-            title="Sincronizar ahora"
-          >
-            <FaIcon
-              icon={faArrowsRotate}
-              size={15}
-              className={syncing ? "animate-spin" : undefined}
-            />
-          </button>
+          {extensionStatus?.apiUrl && extensionStatus.loggedIn && (
+            <button
+              type="button"
+              onClick={() => void syncNow()}
+              className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100"
+              title="Sincronizar ahora"
+            >
+              <FaIcon
+                icon={faArrowsRotate}
+                size={15}
+                className={syncing ? "animate-spin" : undefined}
+              />
+            </button>
+          )}
           <button
             type="button"
             onClick={() => void openDashboard("/dashboard.html?tab=settings")}
@@ -1041,13 +1043,12 @@ export function SidePanelApp() {
 
 function SyncLine({ status, pending }: { status: ExtensionStatus | null; pending: number }) {
   if (!status) return <p className="text-[10px] text-slate-400">Cargando…</p>;
-  const pendingLabel = `${pending} ${pending === 1 ? "pendiente" : "pendientes"}`;
+  // Sin servidor no hay sesión ni cola: solo datos locales.
+  if (!status.apiUrl) {
+    return <p className="text-[10px] text-slate-400">Guardado en este navegador</p>;
+  }
   if (!status.loggedIn) {
-    return (
-      <p className="text-[10px] text-slate-400">
-        {status.apiUrl ? "Sin sesión" : "Solo local"} · {pendingLabel}
-      </p>
-    );
+    return <p className="text-[10px] text-slate-400">Sin sesión</p>;
   }
   return (
     <p className="flex items-center gap-1 text-[10px] text-slate-400">
@@ -1057,7 +1058,7 @@ function SyncLine({ status, pending }: { status: ExtensionStatus | null; pending
           status.lastSyncError ? "bg-rose-500" : "bg-emerald-500",
         )}
       />
-      {status.email ?? "Conectado"} · {pendingLabel}
+      {status.email ?? "Conectado"} · {pending} {pending === 1 ? "pendiente" : "pendientes"}
     </p>
   );
 }

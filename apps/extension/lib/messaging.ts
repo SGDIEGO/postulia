@@ -23,6 +23,7 @@ export type BackgroundRequest =
   | { type: "postulia:open-dashboard" }
   | { type: "postulia:open-sidepanel"; tabId?: number }
   | { type: "postulia:check-reminders" }
+  | { type: "postulia:alarms:reschedule" }
   // Discovery
   | {
       type: "discovery:search";

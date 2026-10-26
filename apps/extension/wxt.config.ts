@@ -9,8 +9,10 @@ export default defineConfig({
     name: "Postulia — Seguimiento de postulaciones",
     short_name: "Postulia",
     description:
-      "Guarda ofertas de LinkedIn, Computrabajo, Indeed y más, y administra todo tu proceso de postulación: estados, kanban, recordatorios y estadísticas.",
+      "Guarda ofertas de LinkedIn, Computrabajo e Indeed y organiza tus postulaciones con kanban, recordatorios y estadísticas.",
     version: "0.1.0",
+    // `sidePanel.open()` y `setPanelBehavior()` requieren Chrome 116+.
+    minimum_chrome_version: "116",
     icons: {
       16: "icon/16.png",
       32: "icon/32.png",
@@ -34,7 +36,9 @@ export default defineConfig({
       "*://*.getonbrd.com/*",
       "*://*.torre.ai/*",
     ],
-    optional_host_permissions: ["https://*/*", "http://localhost/*"],
+    // La sincronización es opcional y apunta al servidor que configure el
+    // usuario, por eso el origen se pide en tiempo de ejecución.
+    optional_host_permissions: ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"],
     action: {
       default_title: "Postulia — abrir panel",
     },
@@ -43,4 +47,7 @@ export default defineConfig({
   vite: () => ({
     plugins: [tailwindcss()],
   }),
+  zip: {
+    artifactTemplate: "postulia-{{version}}-{{browser}}.zip",
+  },
 });

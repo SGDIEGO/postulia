@@ -16,6 +16,7 @@ import { login, logout, register, ensureApiPermission } from "~/lib/auth";
 import { pingServer } from "~/lib/api";
 import { db, type LocalApplication } from "~/lib/db";
 import { useSettingsRow, useExtensionStatus } from "~/lib/hooks";
+import { sendMessage } from "~/lib/messaging";
 import { normalizeApiUrl, updateSettings } from "~/lib/settings";
 import { syncNow, pullRemoteChanges } from "~/lib/sync";
 import { exportCsv, exportJson, importCsv, importJson, downloadFile } from "~/lib/transfer";
@@ -35,6 +36,9 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [followUpDays, setFollowUpDays] = useState(7);
+  // La sincronización es opcional y avanzada: no la mostramos hasta que el
+  // usuario tenga un servidor o pida configurarlo.
+  const [showServer, setShowServer] = useState(false);
 
   const deleted = useLiveQuery(
     async () => db.applications.filter((application) => Boolean(application.deletedAt)).toArray(),
@@ -48,6 +52,15 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
     setFollowUpDays(settings.followUpDays);
   }, [settings]);
 
+  useEffect(() => {
+    if (settings?.apiUrl) setShowServer(true);
+  }, [settings?.apiUrl]);
+
+  /** Reprograma las alarmas tras cambiar la sesión o la sincronización. */
+  function rescheduleAlarms(): void {
+    void sendMessage({ type: "postulia:alarms:reschedule" }).catch(() => undefined);
+  }
+
   async function saveServer() {
     setBusy("server");
     setError(null);
@@ -57,6 +70,8 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
     try {
       if (!normalized) {
         await updateSettings({ apiUrl: "" });
+        setShowServer(false);
+        rescheduleAlarms();
         setInfo("URL del servidor borrada. La app seguirá funcionando en local.");
         return;
       }
@@ -72,6 +87,7 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
       const health = await pingServer(normalized);
       await updateSettings({ apiUrl: normalized });
       setApiUrl(normalized);
+      rescheduleAlarms();
       setInfo(
         health.ok
           ? `Conexión correcta${health.database === "down" ? " (la base de datos del servidor no responde)" : ""}.`
@@ -115,6 +131,7 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
       }
 
       setPassword("");
+      rescheduleAlarms();
       onRefreshStatus();
       void syncNow().then(() => onRefreshStatus());
     } catch (authError) {
@@ -128,6 +145,7 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
     setBusy("logout");
     try {
       await logout();
+      rescheduleAlarms();
       setInfo("Sesión cerrada. Tus datos locales se mantienen.");
       onRefreshStatus();
     } finally {
@@ -182,146 +200,178 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">
-      <Card
-        title="Servidor"
-        actions={<FaIcon icon={faServer} size={16} className="text-slate-400" />}
-      >
-        <div className="space-y-3">
-          <Field
-            label="URL de la API de Postulia"
-            hint="Ejemplo: https://api.postulia.tudominio.com (sin barra final)"
+      {settings.apiUrl || showServer ? (
+        <>
+          <Card
+            title="Servidor"
+            actions={<FaIcon icon={faServer} size={16} className="text-slate-400" />}
           >
-            <Input
-              value={apiUrl}
-              onChange={(event) => setApiUrl(event.target.value)}
-              placeholder="https://api.tudominio.com"
-            />
-          </Field>
-
-          <div className="flex items-center gap-2">
-            <Button size="sm" onClick={() => void saveServer()} disabled={busy === "server"}>
-              <FaIcon icon={faFloppyDisk} size={14} /> Guardar y probar
-            </Button>
-            <span className="text-xs text-slate-400">
-              {status?.lastSyncAt
-                ? `Última sincronización: ${formatDateTimeEs(status.lastSyncAt)}`
-                : "Sin sincronizaciones"}
-            </span>
-          </div>
-
-          {settings.lastSyncError && (
-            <p className="rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">
-              {settings.lastSyncError}
-            </p>
-          )}
-        </div>
-      </Card>
-
-      <Card title="Cuenta" actions={<FaIcon icon={faUser} size={16} className="text-slate-400" />}>
-        {settings.user ? (
-          <div className="space-y-3">
-            <div className="rounded-lg bg-slate-50 px-3 py-2 text-sm">
-              <p className="font-medium text-slate-800">
-                {settings.user.name ?? settings.user.email}
-              </p>
-              <p className="text-xs text-slate-500">{settings.user.email}</p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={() => void syncFromStatus()}
-                disabled={syncing}
+            <div className="space-y-3">
+              <Field
+                label="URL de la API de Postulia"
+                hint="Opcional. Sin servidor, todo se guarda en este navegador. Ejemplo: https://api.postulia.tudominio.com (sin barra final)"
               >
-                <FaIcon
-                  icon={faArrowsRotate}
-                  size={14}
-                  className={syncing ? "animate-spin" : undefined}
+                <Input
+                  value={apiUrl}
+                  onChange={(event) => setApiUrl(event.target.value)}
+                  placeholder="https://api.tudominio.com"
                 />
-                Sincronizar ahora
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => void handleLogout()}
-                disabled={busy === "logout"}
-              >
-                <FaIcon icon={faRightFromBracket} size={14} /> Cerrar sesión
-              </Button>
-            </div>
-            <p className="text-xs text-slate-400">
-              Cambios pendientes: {status?.pending ?? 0}. Los datos viven en tu navegador y se
-              respaldan en tu servidor.
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setMode("login")}
-                className={cn(
-                  "rounded-lg px-3 py-1.5 text-xs font-medium",
-                  mode === "login" ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-600",
-                )}
-              >
-                Iniciar sesión
-              </button>
-              <button
-                type="button"
-                onClick={() => setMode("register")}
-                className={cn(
-                  "rounded-lg px-3 py-1.5 text-xs font-medium",
-                  mode === "register" ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-600",
-                )}
-              >
-                Crear cuenta
-              </button>
-            </div>
-
-            {mode === "register" && (
-              <Field label="Nombre">
-                <Input value={name} onChange={(event) => setName(event.target.value)} />
               </Field>
+
+              <div className="flex items-center gap-2">
+                <Button size="sm" onClick={() => void saveServer()} disabled={busy === "server"}>
+                  <FaIcon icon={faFloppyDisk} size={14} /> Guardar y probar
+                </Button>
+                <span className="text-xs text-slate-400">
+                  {status?.lastSyncAt
+                    ? `Última sincronización: ${formatDateTimeEs(status.lastSyncAt)}`
+                    : "Sin sincronizaciones"}
+                </span>
+              </div>
+
+              {settings.lastSyncError && (
+                <p className="rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">
+                  {settings.lastSyncError}
+                </p>
+              )}
+            </div>
+          </Card>
+
+          <Card
+            title="Cuenta"
+            actions={<FaIcon icon={faUser} size={16} className="text-slate-400" />}
+          >
+            {settings.user ? (
+              <div className="space-y-3">
+                <div className="rounded-lg bg-slate-50 px-3 py-2 text-sm">
+                  <p className="font-medium text-slate-800">
+                    {settings.user.name ?? settings.user.email}
+                  </p>
+                  <p className="text-xs text-slate-500">{settings.user.email}</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => void syncFromStatus()}
+                    disabled={syncing}
+                  >
+                    <FaIcon
+                      icon={faArrowsRotate}
+                      size={14}
+                      className={syncing ? "animate-spin" : undefined}
+                    />
+                    Sincronizar ahora
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => void handleLogout()}
+                    disabled={busy === "logout"}
+                  >
+                    <FaIcon icon={faRightFromBracket} size={14} /> Cerrar sesión
+                  </Button>
+                </div>
+                <p className="text-xs text-slate-400">
+                  Cambios pendientes: {status?.pending ?? 0}. Los datos viven en tu navegador y se
+                  respaldan en tu servidor.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setMode("login")}
+                    className={cn(
+                      "rounded-lg px-3 py-1.5 text-xs font-medium",
+                      mode === "login" ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-600",
+                    )}
+                  >
+                    Iniciar sesión
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMode("register")}
+                    className={cn(
+                      "rounded-lg px-3 py-1.5 text-xs font-medium",
+                      mode === "register"
+                        ? "bg-brand-600 text-white"
+                        : "bg-slate-100 text-slate-600",
+                    )}
+                  >
+                    Crear cuenta
+                  </button>
+                </div>
+
+                {mode === "register" && (
+                  <Field label="Nombre">
+                    <Input value={name} onChange={(event) => setName(event.target.value)} />
+                  </Field>
+                )}
+                <Field label="Correo">
+                  <Input
+                    type="email"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    autoComplete="username"
+                  />
+                </Field>
+                <Field
+                  label="Contraseña"
+                  hint={mode === "register" ? "Mínimo 10 caracteres" : undefined}
+                >
+                  <Input
+                    type="password"
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    autoComplete={mode === "login" ? "current-password" : "new-password"}
+                  />
+                </Field>
+
+                <Button size="sm" onClick={() => void submitAuth()} disabled={busy === "auth"}>
+                  {mode === "login" ? "Entrar" : "Crear cuenta"}
+                </Button>
+
+                <p className="text-xs text-slate-400">
+                  Puedes usar Postulia sin cuenta: todo se guarda en local y sincronizas cuando
+                  quieras.
+                </p>
+              </div>
             )}
-            <Field label="Correo">
-              <Input
-                type="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                autoComplete="username"
-              />
-            </Field>
-            <Field
-              label="Contraseña"
-              hint={mode === "register" ? "Mínimo 10 caracteres" : undefined}
-            >
-              <Input
-                type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                autoComplete={mode === "login" ? "current-password" : "new-password"}
-              />
-            </Field>
-
-            <Button size="sm" onClick={() => void submitAuth()} disabled={busy === "auth"}>
-              {mode === "login" ? "Entrar" : "Crear cuenta"}
-            </Button>
-
-            <p className="text-xs text-slate-400">
-              Puedes usar Postulia sin cuenta: todo se guarda en local y sincronizas cuando quieras.
+          </Card>
+        </>
+      ) : (
+        <Card
+          title="Sincronización opcional"
+          className="lg:col-span-2"
+          actions={<FaIcon icon={faServer} size={16} className="text-slate-400" />}
+        >
+          <div className="space-y-3">
+            <p className="text-sm text-slate-600">
+              Postulia funciona sin cuenta: tus postulaciones se guardan en este navegador. Si
+              quieres respaldarlas o usarlas en otro equipo, puedes conectar tu propia API de
+              Postulia.
             </p>
+            <Button size="sm" variant="secondary" onClick={() => setShowServer(true)}>
+              <FaIcon icon={faServer} size={14} /> Configurar servidor
+            </Button>
           </div>
-        )}
-      </Card>
+        </Card>
+      )}
 
       <Card title="Preferencias">
         <div className="space-y-3">
-          <Toggle
-            label="Sincronización automática cada 5 minutos"
-            checked={settings.syncEnabled}
-            onChange={(value) => void updateSettings({ syncEnabled: value })}
-          />
+          {settings.apiUrl && (
+            <Toggle
+              label="Sincronización automática cada 5 minutos"
+              checked={settings.syncEnabled}
+              onChange={(value) => {
+                void updateSettings({ syncEnabled: value });
+                rescheduleAlarms();
+              }}
+            />
+          )}
           <Toggle
             label="Notificaciones de recordatorios"
             checked={settings.notificationsEnabled}
@@ -384,22 +434,24 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
             </p>
           </div>
 
-          <div className="flex flex-wrap gap-2 border-t border-slate-100 pt-3">
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => {
-                void (async () => {
-                  await updateSettings({ lastPulledAt: null });
-                  await pullRemoteChanges();
-                  setInfo("Descarga completa desde el servidor finalizada.");
-                  onRefreshStatus();
-                })();
-              }}
-            >
-              <FaIcon icon={faArrowsRotate} size={14} /> Forzar descarga completa
-            </Button>
-          </div>
+          {settings.apiUrl && (
+            <div className="flex flex-wrap gap-2 border-t border-slate-100 pt-3">
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  void (async () => {
+                    await updateSettings({ lastPulledAt: null });
+                    await pullRemoteChanges();
+                    setInfo("Descarga completa desde el servidor finalizada.");
+                    onRefreshStatus();
+                  })();
+                }}
+              >
+                <FaIcon icon={faArrowsRotate} size={14} /> Forzar descarga completa
+              </Button>
+            </div>
+          )}
         </div>
       </Card>
 
@@ -471,6 +523,16 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
           <p>
             ¿Necesitas ayuda? Consulta el README del repositorio:{" "}
             <span className="font-mono">github.com/SGDIEGO/postulia</span>
+          </p>
+          <p>
+            <a
+              className="text-brand-600 hover:underline"
+              href="https://github.com/SGDIEGO/postulia/blob/main/PRIVACY.md"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Política de privacidad
+            </a>
           </p>
         </div>
       </Card>
