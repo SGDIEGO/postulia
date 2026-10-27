@@ -89,9 +89,11 @@ export function Overview({
             {stats.weekly.map((week) => (
               <div key={week.weekStart} className="group flex flex-1 flex-col items-center gap-1">
                 <div className="relative flex w-full flex-1 items-end">
+                  {/* Altura en píxeles: los porcentajes no resuelven dentro de un
+                      flex item sin altura definida y las barras quedaban a 0. */}
                   <div
                     className="w-full rounded-t bg-brand-500/80 transition group-hover:bg-brand-600"
-                    style={{ height: `${Math.max(4, (week.count / maxWeekly) * 100)}%` }}
+                    style={{ height: `${Math.max(6, (week.count / maxWeekly) * 128)}px` }}
                     title={`${week.count} postulaciones`}
                   />
                 </div>

@@ -449,9 +449,25 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
 
       <Card title="Acerca de" className="lg:col-span-2">
         <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
-          <p>
-            Postulia v{browser.runtime.getManifest().version}
-          </p>
+          <p>Postulia v{browser.runtime.getManifest().version}</p>
+          <div className="flex flex-wrap gap-3">
+            <a
+              href="https://github.com/SGDIEGO/postulia"
+              target="_blank"
+              rel="noreferrer"
+              className="font-medium text-brand-600 hover:underline"
+            >
+              Repositorio
+            </a>
+            <a
+              href="https://github.com/SGDIEGO/postulia/blob/main/PRIVACY.md"
+              target="_blank"
+              rel="noreferrer"
+              className="font-medium text-brand-600 hover:underline"
+            >
+              Política de privacidad
+            </a>
+          </div>
         </div>
       </Card>
     </div>

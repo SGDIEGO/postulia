@@ -21,7 +21,7 @@ export function RemindersView({ onOpenApplication }: { onOpenApplication: (id: s
       tone: "text-rose-600",
     },
     {
-      title: "Para hoy y mañana",
+      title: "Próximas 48 horas",
       items: pending.filter((reminder) => {
         const due = new Date(reminder.dueAt).getTime();
         return due >= now && due <= now + 2 * 86_400_000;
@@ -42,7 +42,7 @@ export function RemindersView({ onOpenApplication }: { onOpenApplication: (id: s
       {pending.length === 0 && (
         <EmptyState
           title="Sin recordatorios pendientes"
-          description="Al marcar una postulación como postulada se crea un recordatorio automático a los días configurados."
+          description="Al marcar una postulación como postulada se crea un recordatorio automático a los 7 días."
         />
       )}
 

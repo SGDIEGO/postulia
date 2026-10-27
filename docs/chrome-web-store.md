@@ -132,11 +132,15 @@ Declarar en el formulario de la tienda:
 ## 5. Assets
 
 - [x] Icono 128×128 en `apps/extension/public/icon/128.png`.
-- [ ] 1–5 capturas de 1280×800 (PNG o JPEG) del panel lateral y del panel de control.
-- [ ] Captura del kanban, de los ajustes locales y de una oferta capturada.
+- [x] 5 capturas de 1280×800 en `docs/store/screenshots/`:
+  - `01-resumen.png`
+  - `02-postulaciones.png`
+  - `03-kanban.png`
+  - `04-recordatorios.png`
+  - `05-ajustes.png`
 - [ ] (Opcional) imagen promocional 440×280 para destacados.
 
-Las capturas deben hacerse con un perfil limpio y datos de ejemplo, sin correos ni nombres reales.
+Las capturas usan datos de ejemplo y no contienen datos personales.
 
 ## 6. QA antes de enviar
 

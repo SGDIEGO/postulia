@@ -195,7 +195,7 @@ export function DashboardApp() {
               {tab === "applications" && "Historial completo, búsqueda y filtros"}
               {tab === "kanban" && "Mueve las postulaciones entre etapas"}
               {tab === "reminders" && "Seguimientos pendientes y vencidos"}
-              {tab === "settings" && "Servidor, cuenta, datos y preferencias"}
+              {tab === "settings" && "Datos, papelera y acerca de"}
             </p>
           </div>
 
