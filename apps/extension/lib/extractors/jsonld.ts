@@ -99,12 +99,10 @@ function readSalary(value: unknown): { salary: string | null; currency: string |
   return { salary: null, currency };
 }
 
-/** Extrae los datos de la oferta desde JSON-LD (schema.org/JobPosting). */
-export function extractFromJsonLd(doc: Document): Partial<ExtractedJob> | null {
+function readJsonLdNodes(doc: Document): JsonLdNode[] {
   const scripts = [...doc.querySelectorAll('script[type="application/ld+json"]')];
-  if (scripts.length === 0) return null;
-
   const nodes: JsonLdNode[] = [];
+
   for (const script of scripts) {
     const raw = script.textContent?.trim();
     if (!raw) continue;
@@ -117,7 +115,17 @@ export function extractFromJsonLd(doc: Document): Partial<ExtractedJob> | null {
     }
   }
 
-  const posting = findJobPosting(nodes);
+  return nodes;
+}
+
+/** Indica si la página declara al menos una oferta con schema.org/JobPosting. */
+export function hasJobPostingJsonLd(doc: Document): boolean {
+  return findJobPosting(readJsonLdNodes(doc)) !== null;
+}
+
+/** Extrae los datos de la oferta desde JSON-LD (schema.org/JobPosting). */
+export function extractFromJsonLd(doc: Document): Partial<ExtractedJob> | null {
+  const posting = findJobPosting(readJsonLdNodes(doc));
   if (!posting) return null;
 
   const title = readString(posting["title"]);

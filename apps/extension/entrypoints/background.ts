@@ -12,7 +12,7 @@ import {
   pendingChangesCount,
   updateApplication,
 } from "~/lib/repository";
-import { getSettings, hasSession } from "~/lib/settings";
+import { getSettings, hasSession, updateSettings } from "~/lib/settings";
 import { syncNow } from "~/lib/sync";
 import type {
   BackgroundRequest,
@@ -142,6 +142,9 @@ export default defineBackground(() => {
     void sidePanel?.setPanelBehavior?.({ openPanelOnActionClick: true }).catch(() => undefined);
     void scheduleAlarms();
     if (details.reason === "install") {
+      // Crea la fila de ajustes desde el primer arranque. Así la vista de
+      // Ajustes no depende de que el usuario configure algo para cargar.
+      void updateSettings({}).catch(() => undefined);
       void browser.tabs.create({ url: browser.runtime.getURL("/dashboard.html") });
     }
   });

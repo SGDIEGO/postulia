@@ -38,7 +38,8 @@ import { StatusBadge } from "~/components/StatusBadge";
 import { Button, Spinner, cn } from "~/components/ui";
 import { useApplications, useExtensionStatus, useReminders } from "~/lib/hooks";
 import { isLocationFilterActive, resolveCountry } from "~/lib/discovery/location";
-import type { ExtractedJobResult } from "~/lib/extractors/types";
+import { isExtractPageResult } from "~/lib/extractors";
+import type { ExtractPageResult, ExtractedJobResult } from "~/lib/extractors";
 import {
   sendMessage,
   type CaptureResponse,
@@ -48,21 +49,48 @@ import {
 
 type CaptureState =
   | { stage: "loading" }
-  | { stage: "empty"; message: string }
+  | { stage: "empty"; message: string; url?: string }
   | { stage: "ready"; job: ExtractedJobResult; duplicate: boolean }
   | { stage: "saved"; title: string }
   | { stage: "error"; message: string };
+
+/**
+ * Normaliza la respuesta del content script. Las pestañas abiertas antes de
+ * actualizar la extensión pueden responder con el formato antiguo (la oferta
+ * directamente); se acepta para no romper la captura hasta recargarlas.
+ */
+function toExtractPageResult(value: unknown, pageUrl: string): ExtractPageResult {
+  if (isExtractPageResult(value)) return value;
+
+  const job = (value ?? null) as ExtractedJobResult | null;
+  return {
+    job,
+    classification: {
+      kind: job ? "job" : "unknown",
+      site: "other",
+      reason: job ? "" : "No se detectó una oferta en esta página.",
+      hasJobPosting: false,
+    },
+    pageUrl,
+  };
+}
 
 /**
  * Pide la extracción al content script. Si la página no está entre los
  * portales compatibles, lo inyecta con activeTab (el clic en la acción de la
  * extensión concede permiso temporal para la pestaña activa).
  */
-async function extractFromTab(tabId: number): Promise<ExtractedJobResult | null | undefined> {
+async function extractFromTab(
+  tabId: number,
+  pageUrl: string,
+): Promise<ExtractPageResult | undefined> {
   try {
-    return (await browser.tabs.sendMessage(tabId, {
-      type: "postulia:extract",
-    })) as ExtractedJobResult | null;
+    return toExtractPageResult(
+      await browser.tabs.sendMessage(tabId, {
+        type: "postulia:extract",
+      }),
+      pageUrl,
+    );
   } catch {
     // Sin content script: se inyecta en la pestaña actual.
   }
@@ -73,9 +101,12 @@ async function extractFromTab(tabId: number): Promise<ExtractedJobResult | null 
       files: ["/content-scripts/content.js"],
     });
     await new Promise((resolve) => setTimeout(resolve, 50));
-    return (await browser.tabs.sendMessage(tabId, {
-      type: "postulia:extract",
-    })) as ExtractedJobResult | null;
+    return toExtractPageResult(
+      await browser.tabs.sendMessage(tabId, {
+        type: "postulia:extract",
+      }),
+      pageUrl,
+    );
   } catch {
     return undefined;
   }
@@ -154,32 +185,37 @@ export function SidePanelApp() {
       }
       setActiveTabId(tab.id);
 
-      const extracted = await extractFromTab(tab.id);
+      const extracted = await extractFromTab(tab.id, tab.url);
 
       if (extracted === undefined) {
         setCapture({
           stage: "empty",
           message:
             "No se pudo acceder a esta página. Abre una oferta y pulsa el icono de Postulia en la barra de Chrome para activar la captura en este sitio.",
+          url: tab.url,
         });
         return;
       }
 
-      if (extracted === null) {
-        setCapture({
-          stage: "empty",
-          message:
-            "Esta página no parece una oferta. Si el portal no es compatible, abre la vacante y vuelve a pulsar el icono de Postulia.",
-        });
+      if (extracted.job === null) {
+        const { classification } = extracted;
+        const message =
+          classification.kind === "listing"
+            ? "Estás en un listado de ofertas. Abre una oferta (clic en su título) y vuelve a detectar."
+            : classification.site !== "other"
+              ? `Esta página de ${SOURCE_LABELS[classification.site]} no es la ficha de una oferta. Abre una oferta concreta y vuelve a intentar.`
+              : "Esta página no parece una oferta. Si el portal no es compatible, abre la vacante y vuelve a pulsar el icono de Postulia.";
+
+        setCapture({ stage: "empty", message, url: extracted.pageUrl || tab.url });
         return;
       }
 
       const duplicate = await sendMessage<DuplicateResponse>({
         type: "postulia:duplicate-check",
-        url: extracted.url,
+        url: extracted.job.url,
       }).catch(() => ({ duplicate: false }) as DuplicateResponse);
 
-      setCapture({ stage: "ready", job: extracted, duplicate: duplicate.duplicate });
+      setCapture({ stage: "ready", job: extracted.job, duplicate: duplicate.duplicate });
     } catch {
       setCapture({
         stage: "empty",
@@ -197,6 +233,24 @@ export function SidePanelApp() {
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
   }, [detect]);
+
+  // Vuelve a detectar cuando el usuario cambia de pestaña o navega dentro de
+  // la pestaña activa, sin esperar a que el panel recupere el foco.
+  useEffect(() => {
+    const onActivated = () => void detect();
+
+    const onUpdated = (tabId: number, info: { status?: string; url?: string }) => {
+      if (activeTabId === null || tabId !== activeTabId) return;
+      if (info.status === "complete" || info.url) void detect();
+    };
+
+    browser.tabs.onActivated.addListener(onActivated);
+    browser.tabs.onUpdated.addListener(onUpdated);
+    return () => {
+      browser.tabs.onActivated.removeListener(onActivated);
+      browser.tabs.onUpdated.removeListener(onUpdated);
+    };
+  }, [detect, activeTabId]);
 
   async function save(force = false) {
     if (capture.stage !== "ready") return;
@@ -458,7 +512,14 @@ export function SidePanelApp() {
               {capture.stage === "loading" && <Spinner label="Leyendo la pestaña…" />}
 
               {capture.stage === "empty" && (
-                <p className="text-xs text-slate-500">{capture.message}</p>
+                <div>
+                  <p className="text-xs text-slate-500">{capture.message}</p>
+                  {capture.url && (
+                    <p className="mt-1.5 break-all text-[10px] leading-snug text-slate-400">
+                      {capture.url}
+                    </p>
+                  )}
+                </div>
               )}
 
               {capture.stage === "error" && (

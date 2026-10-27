@@ -36,9 +36,6 @@ export default defineConfig({
       "*://*.getonbrd.com/*",
       "*://*.torre.ai/*",
     ],
-    // La sincronización es opcional y apunta al servidor que configure el
-    // usuario, por eso el origen se pide en tiempo de ejecución.
-    optional_host_permissions: ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"],
     action: {
       default_title: "Postulia — abrir panel",
     },

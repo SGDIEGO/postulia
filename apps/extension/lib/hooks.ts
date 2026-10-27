@@ -1,6 +1,6 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import { useCallback, useEffect, useState } from "react";
-import type { PostuliaSettings } from "./settings";
+import { resolveSettings, type PostuliaSettings } from "./settings";
 import {
   db,
   type LocalApplication,
@@ -81,11 +81,15 @@ export function useTags(): LocalTag[] {
   );
 }
 
-export function useSettingsRow(): PostuliaSettings | null | undefined {
+/**
+ * Ajustes guardados. Devuelve `undefined` solo mientras Dexie carga; si no
+ * existe la fila, entrega los valores por defecto en lugar de `null`.
+ */
+export function useSettingsRow(): PostuliaSettings | undefined {
   return useLiveQuery(
     async () => {
       const row = await db.meta.get("settings");
-      return (row?.value as PostuliaSettings) ?? null;
+      return resolveSettings(row?.value as Partial<PostuliaSettings> | undefined);
     },
     [],
     undefined,

@@ -11,7 +11,7 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import { formatDateTimeEs } from "@postulia/shared";
 import { FaIcon } from "~/components/FaIcon";
-import { Button, Card, Field, Input, Spinner, Toggle, cn } from "~/components/ui";
+import { Button, Card, Field, Input, Spinner, cn } from "~/components/ui";
 import { login, logout, register, ensureApiPermission } from "~/lib/auth";
 import { pingServer } from "~/lib/api";
 import { db, type LocalApplication } from "~/lib/db";
@@ -35,10 +35,6 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
-  const [followUpDays, setFollowUpDays] = useState(7);
-  // La sincronización es opcional y avanzada: no la mostramos hasta que el
-  // usuario tenga un servidor o pida configurarlo.
-  const [showServer, setShowServer] = useState(false);
 
   const deleted = useLiveQuery(
     async () => db.applications.filter((application) => Boolean(application.deletedAt)).toArray(),
@@ -49,12 +45,7 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
   useEffect(() => {
     if (!settings) return;
     setApiUrl(settings.apiUrl);
-    setFollowUpDays(settings.followUpDays);
   }, [settings]);
-
-  useEffect(() => {
-    if (settings?.apiUrl) setShowServer(true);
-  }, [settings?.apiUrl]);
 
   /** Reprograma las alarmas tras cambiar la sesión o la sincronización. */
   function rescheduleAlarms(): void {
@@ -70,7 +61,6 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
     try {
       if (!normalized) {
         await updateSettings({ apiUrl: "" });
-        setShowServer(false);
         rescheduleAlarms();
         setInfo("URL del servidor borrada. La app seguirá funcionando en local.");
         return;
@@ -190,7 +180,7 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
     }
   }
 
-  if (!settings) {
+  if (settings === undefined) {
     return (
       <div className="p-8">
         <Spinner label="Cargando ajustes…" />
@@ -200,7 +190,7 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">
-      {settings.apiUrl || showServer ? (
+      {settings.apiUrl ? (
         <>
           <Card
             title="Servidor"
@@ -341,66 +331,9 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
             )}
           </Card>
         </>
-      ) : (
-        <Card
-          title="Sincronización opcional"
-          className="lg:col-span-2"
-          actions={<FaIcon icon={faServer} size={16} className="text-slate-400" />}
-        >
-          <div className="space-y-3">
-            <p className="text-sm text-slate-600">
-              Postulia funciona sin cuenta: tus postulaciones se guardan en este navegador. Si
-              quieres respaldarlas o usarlas en otro equipo, puedes conectar tu propia API de
-              Postulia.
-            </p>
-            <Button size="sm" variant="secondary" onClick={() => setShowServer(true)}>
-              <FaIcon icon={faServer} size={14} /> Configurar servidor
-            </Button>
-          </div>
-        </Card>
-      )}
+      ) : null}
 
-      <Card title="Preferencias">
-        <div className="space-y-3">
-          {settings.apiUrl && (
-            <Toggle
-              label="Sincronización automática cada 5 minutos"
-              checked={settings.syncEnabled}
-              onChange={(value) => {
-                void updateSettings({ syncEnabled: value });
-                rescheduleAlarms();
-              }}
-            />
-          )}
-          <Toggle
-            label="Notificaciones de recordatorios"
-            checked={settings.notificationsEnabled}
-            onChange={(value) => {
-              void updateSettings({ notificationsEnabled: value });
-              if (value && "Notification" in window) {
-                void Notification.requestPermission().catch(() => undefined);
-              }
-            }}
-          />
-
-          <Field label="Días para sugerir seguimiento" hint="Se crea un recordatorio al postular">
-            <Input
-              type="number"
-              min={1}
-              max={60}
-              value={followUpDays}
-              onChange={(event) => setFollowUpDays(Number(event.target.value))}
-              onBlur={() => {
-                const days = Math.min(60, Math.max(1, followUpDays || 7));
-                setFollowUpDays(days);
-                void updateSettings({ followUpDays: days });
-              }}
-            />
-          </Field>
-        </div>
-      </Card>
-
-      <Card title="Datos">
+      <Card title="Datos" className="lg:col-span-2">
         <div className="space-y-3">
           <div className="flex flex-wrap gap-2">
             <Button size="sm" variant="secondary" onClick={() => void handleExport("json")}>
@@ -517,22 +450,7 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
       <Card title="Acerca de" className="lg:col-span-2">
         <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
           <p>
-            Postulia v{browser.runtime.getManifest().version} · Extensión de Chrome con API propia
-            (Fastify + PostgreSQL).
-          </p>
-          <p>
-            ¿Necesitas ayuda? Consulta el README del repositorio:{" "}
-            <span className="font-mono">github.com/SGDIEGO/postulia</span>
-          </p>
-          <p>
-            <a
-              className="text-brand-600 hover:underline"
-              href="https://github.com/SGDIEGO/postulia/blob/main/PRIVACY.md"
-              target="_blank"
-              rel="noreferrer"
-            >
-              Política de privacidad
-            </a>
+            Postulia v{browser.runtime.getManifest().version}
           </p>
         </div>
       </Card>

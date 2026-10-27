@@ -2,7 +2,7 @@
 
 Extensión de Chrome + API propia para **registrar y dar seguimiento a postulaciones laborales**. Guarda una oferta desde LinkedIn, Computrabajo, Indeed y otros portales, y administra todo el proceso en un panel lateral o en un panel de control: estados, recordatorios, notas, etiquetas, estadísticas y exportación.
 
-Postulia es **local-first**: los datos viven en IndexedDB (Dexie) y se sincronizan con tu servidor cuando hay conexión. No hay servicios de terceros ni telemetría.
+Postulia es **local-first**: los datos viven en IndexedDB (Dexie) y la v0.1 no envía nada a ningún servidor. La API autoalojada sigue en el repositorio para despliegues propios, pero la extensión no la configura desde la interfaz. No hay servicios de terceros ni telemetría.
 
 > **v0.1** — No incluye postulación automática. Enviar solicitudes de forma masiva incumple los términos de los portales y no es el objetivo del proyecto.
 
@@ -13,7 +13,7 @@ Postulia es **local-first**: los datos viven en IndexedDB (Dexie) y se sincroniz
 - **Alta manual** de cualquier postulación desde el panel de control.
 - **Pipeline** con estados: guardada, postulada, en revisión, entrevista, oferta, rechazada y retirada; cada cambio queda en una línea de tiempo.
 - **Kanban** con arrastrar y soltar y **vista de lista** con filtros y búsqueda.
-- **Recordatorios** de seguimiento con notificaciones del navegador (alarma cada 30 minutos) y recordatorio automático configurable tras postular.
+- **Recordatorios** de seguimiento con notificaciones del navegador (alarma cada 30 minutos) y recordatorio automático a los 7 días de postular.
 - **Detección de duplicados** por URL normalizada (local y contra el servidor), con opción de guardar igualmente.
 - **Estadísticas**: embudo, tasa de respuesta, actividad semanal y por portal.
 - **Exportación/importación** CSV y JSON, y papelera con restauración.
@@ -71,15 +71,16 @@ npm run build -w @postulia/extension
 1. Abre `chrome://extensions`.
 2. Activa **Modo de desarrollador**.
 3. **Cargar descomprimida** y elige `apps/extension/.output/chrome-mv3` (o `chrome-mv3-dev` en modo dev).
-4. Abre **Ajustes** de Postulia, escribe la URL de la API (`http://localhost:3000` o tu dominio) y pulsa **Guardar y probar**. Chrome pedirá permiso para ese origen; es necesario porque la API no está declarada como host fijo.
-5. Registra una cuenta o inicia sesión. Si usas el despliegue Docker, crea tu cuenta y después pon `ALLOW_REGISTRATION=false`.
+4. Abre el panel de Postulia. No hace falta configurar nada: la extensión arranca en modo local y guarda todo en el navegador.
+
+> La API autoalojada sigue incluida para desarrollo y despliegues propios, pero la v0.1 no expone su configuración en la interfaz.
 
 > Al cargar la extensión sin empaquetar, Chrome le asigna un id. Si quieres restringir CORS a esa extensión, copia el id y usa `CORS_ORIGINS=chrome-extension://<id>`.
 
 ### Tests y verificación
 
 ```bash
-npm test                   # shared (20) + API (7) + extensión (89)
+npm test                   # shared (20) + API (7) + extensión (111)
 npm run typecheck
 npm run build              # shared + API + extensión
 ```
@@ -91,21 +92,20 @@ La API usa un cliente Prisma falso en memoria para las pruebas de integración: 
 - **En un portal compatible**: entra a la oferta y pulsa el botón flotante. Puedes ajustar puesto, empresa, ubicación, estado y notas antes de guardar.
 - **En otro portal**: abre el panel lateral de Postulia. Si la página contiene JSON-LD de tipo `JobPosting`, la oferta se detecta y se inyecta el capturador; también puedes guardarla desde el panel.
 - **Alta manual**: panel de control → **Nueva postulación**.
-- **Panel lateral**: clic en el icono de Postulia. Muestra la oferta activa, recordatorios próximos y el estado de sincronización.
+- **Panel lateral**: clic en el icono de Postulia. Muestra la oferta activa y los recordatorios próximos.
 - **Panel de control**: desde el panel lateral pulsa **Abrir panel completo** (también se abre al instalar la extensión). Incluye resumen, lista, tablero Kanban, recordatorios y ajustes.
 
 ### Sincronización
 
-- **Por defecto todo es local**: sin URL de servidor no hay cuenta, no se envía nada y los datos viven en IndexedDB.
-- La API es **opcional y autoalojada**. Puedes conectarla desde **Ajustes → Sincronización opcional**.
-- Al iniciar sesión, `syncNow()` sube los cambios pendientes y baja los del servidor.
-- Sincronización automática cada 5 minutos (se puede desactivar en Ajustes) y sincronización manual desde el icono.
-- Los borrados son blandos (`deletedAt`) para propagarse entre dispositivos.
-- Las alertas de búsqueda, los recordatorios y la limpieza del descubrimiento funcionan también sin sesión.
+- **Todo es local**: sin cuenta, sin envíos y con los datos en IndexedDB. La interfaz no pide servidor ni sesión.
+- La API autoalojada se mantiene en el repositorio para desarrollo y despliegues propios, pero la v0.1 no la configura desde la UI.
+- Cuando hay una API configurada en una compilación propia, `syncNow()` sube los cambios pendientes y baja los del servidor.
+- Los borrados son blandos (`deletedAt`) para poder restaurarlos desde la papelera.
+- Las alertas de búsqueda, los recordatorios y la limpieza del descubrimiento funcionan en local, sin sesión.
 
 ## Privacidad
 
-Postulia no incluye telemetría ni analítica y no opera un servidor propio. Sin configurar una API, ningún dato sale del navegador. Consulta la [política de privacidad](PRIVACY.md) para el detalle de datos, permisos, retención y borrado.
+Postulia no incluye telemetría ni analítica y no opera un servidor propio. Ningún dato sale del navegador. Consulta la [política de privacidad](PRIVACY.md) para el detalle de datos, permisos, retención y borrado.
 
 ## Despliegue con Docker y HTTPS
 

@@ -27,7 +27,7 @@ Comprobaciones del `manifest.json` incluido:
 | Chrome mínimo               | `116` (`sidePanel.open` y `setPanelBehavior`)                                       |
 | Permisos                    | `storage`, `alarms`, `notifications`, `sidePanel`, `tabs`, `activeTab`, `scripting` |
 | Host permissions            | 6 portales de empleo                                                                |
-| Host permissions opcionales | `https://*/*`, `http://localhost/*`, `http://127.0.0.1/*`                           |
+| Host permissions opcionales | Ninguna: la v0.1 no se conecta a servidores                                         |
 
 ## 2. Ficha de la tienda
 
@@ -56,7 +56,7 @@ Postulia te ayuda a llevar el control de tu búsqueda de empleo sin hojas de cá
 • Consulta estadísticas de tu proceso.
 • Exporta o importa tus datos en JSON y CSV.
 
-Funciona sin cuenta: toda la información se guarda en tu navegador. Si quieres respaldarla o usarla en varios equipos, puedes conectar tu propia API de Postulia (opcional y autoalojada).
+Funciona sin cuenta: toda la información se guarda en tu navegador y no se envía a ningún servidor.
 
 Postulia no incluye publicidad, telemetría ni venta de datos. No envía postulaciones automáticamente.
 ```
@@ -82,7 +82,7 @@ Copia cada texto en el campo correspondiente del formulario.
 
 **`alarms`**
 
-> Programa recordatorios de seguimiento, la comprobación periódica de alertas de búsqueda y, solo si el usuario lo activa, la sincronización con su servidor.
+> Programa recordatorios de seguimiento y la comprobación periódica de alertas de búsqueda. No hay sincronización con servidores.
 
 **`notifications`**
 
@@ -108,10 +108,6 @@ Copia cada texto en el campo correspondiente del formulario.
 
 > Leer el contenido de la oferta o del listado en los portales de empleo compatibles para que el usuario pueda guardarla. No se accede a otros sitios.
 
-**Optional host permissions (`https://*/*`, `localhost`, `127.0.0.1`)**
-
-> La sincronización es opcional y autoalojada. El usuario introduce la URL de su propia API; el permiso se solicita en ese momento y solo se accede a ese origen.
-
 **¿Se usa código remoto?**
 
 > No. Todo el JavaScript está incluido en el paquete y no se evalúa código descargado.
@@ -124,8 +120,8 @@ Copia cada texto en el campo correspondiente del formulario.
 
 Declarar en el formulario de la tienda:
 
-- **¿Se recopilan datos?** Sí, pero solo localmente por defecto. Si el usuario conecta su servidor, se transmiten a ese servidor.
-- **Categorías:** información personal identificable (nombre y correo si el usuario crea una cuenta en su servidor), información de autenticación (tokens), historial web (URLs de ofertas guardadas), contenido del sitio (datos de la oferta) y actividad del usuario (postulaciones y recordatorios).
+- **¿Se recopilan datos?** No. Todo se guarda en el navegador y no se transmite a ningún servidor.
+- **Categorías:** ninguna. Los datos de las postulaciones, recordatorios y ofertas permanecen en el almacenamiento local del navegador.
 - **¿Se venden datos?** No.
 - **¿Se usan para publicidad?** No.
 - **¿Se usan para fines no relacionados?** No.
@@ -145,7 +141,7 @@ Las capturas deben hacerse con un perfil limpio y datos de ejemplo, sin correos 
 ## 6. QA antes de enviar
 
 - [ ] Instalar el ZIP en un perfil limpio de Chrome.
-- [ ] Sin servidor: no aparece “Servidor”, “Sin iniciar sesión” ni “cambios pendientes”.
+- [ ] Modo local: la barra lateral no muestra “Servidor” ni sesión, y Ajustes no muestra servidor, preferencias ni sincronización.
 - [ ] Capturar una oferta en cada portal compatible.
 - [ ] Probar el capturador bajo demanda en un portal no listado.
 - [ ] Crear, editar, mover en kanban y borrar una postulación.
@@ -153,9 +149,8 @@ Las capturas deben hacerse con un perfil limpio y datos de ejemplo, sin correos 
 - [ ] Ejecutar una búsqueda de descubrimiento y guardar una oferta.
 - [ ] Exportar JSON y CSV, borrar los datos y volver a importar.
 - [ ] Abrir la política de privacidad desde Ajustes.
-- [ ] Con servidor propio: guardar URL, iniciar sesión, sincronizar y cerrar sesión.
 - [ ] Revisar la consola del service worker y del panel: sin errores.
-- [ ] Verificar que no hay peticiones a dominios ajenos a los portales o al servidor configurado.
+- [ ] Verificar que no hay peticiones a dominios ajenos a los portales de empleo.
 
 ## 7. Envío
 

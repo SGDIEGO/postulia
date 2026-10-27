@@ -3,7 +3,7 @@ import { faBriefcase, faXmark } from "@fortawesome/free-solid-svg-icons";
 import type { ApplicationRecord, ApplicationStatus } from "@postulia/shared";
 import { STATUS_LABELS } from "@postulia/shared";
 import { FaIcon } from "~/components/FaIcon";
-import { extractJob } from "~/lib/extractors";
+import { classifyPage, extractJob } from "~/lib/extractors";
 import type { ExtractedJobResult } from "~/lib/extractors/types";
 import { sendMessage, type CaptureResponse, type DuplicateResponse } from "~/lib/messaging";
 
@@ -33,9 +33,16 @@ export function CaptureWidget() {
 
   async function openPanel() {
     setStage("loading");
+    const classification = classifyPage(new URL(window.location.href), document);
     const extracted = extractJob(window.location.href, document);
     if (!extracted) {
-      setMessage("No se detectó una oferta en esta página.");
+      setMessage(
+        classification.kind === "listing"
+          ? "Estás en un listado de ofertas. Abre una oferta (clic en su título) y vuelve a pulsar «Guardar en Postulia»."
+          : classification.site !== "other"
+            ? "Esta página no es la ficha de una oferta. Abre una oferta concreta para guardarla."
+            : "No se detectó una oferta en esta página.",
+      );
       setStage("error");
       return;
     }

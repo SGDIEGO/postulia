@@ -146,58 +146,38 @@ export function DashboardApp() {
           })}
         </nav>
 
-        {!sidebarCollapsed && (
+        {!sidebarCollapsed && statusLoaded && !localOnly && (
           <div className="border-t border-slate-200 p-3">
             <div className="rounded-lg bg-slate-50 p-3 text-xs text-slate-500">
-              {!statusLoaded ? (
-                <p className="text-slate-400">Cargando estado…</p>
-              ) : localOnly ? (
-                <>
-                  <p className="flex items-center justify-between font-medium text-slate-600">
-                    <span>Datos locales</span>
-                    <span className="h-2 w-2 rounded-full bg-emerald-500" title="Guardado" />
-                  </p>
-                  <p className="mt-1">Guardado en este navegador</p>
-                  <p className="mt-0.5 text-[11px] text-slate-400">
-                    {status?.totalApplications ?? 0}{" "}
-                    {(status?.totalApplications ?? 0) === 1 ? "postulación" : "postulaciones"}
-                  </p>
-                </>
-              ) : (
-                <>
-                  <p className="flex items-center justify-between font-medium text-slate-600">
-                    <span>Servidor</span>
-                    <span
-                      className={cn(
-                        "h-2 w-2 rounded-full",
-                        status?.lastSyncError
-                          ? "bg-rose-500"
-                          : status?.loggedIn
-                            ? "bg-emerald-500"
-                            : "bg-slate-300",
-                      )}
-                      title={
-                        status?.lastSyncError ?? (status?.loggedIn ? "Conectado" : "Sin sesión")
-                      }
-                    />
-                  </p>
-                  <p className="mt-1 truncate">{status?.email ?? "Sin iniciar sesión"}</p>
-                  <p className="mt-1">
-                    {pending > 0
-                      ? `${pending} ${pending === 1 ? "cambio pendiente" : "cambios pendientes"}`
-                      : "Todo sincronizado"}
-                  </p>
-                  <p className="mt-0.5 text-[11px] text-slate-400">
-                    {status?.lastSyncAt
-                      ? `Última sincronización: ${formatDateTimeEs(status.lastSyncAt)}`
-                      : "—"}
-                  </p>
-                  {status?.lastSyncError && (
-                    <p className="mt-1 line-clamp-2 text-[11px] text-rose-600">
-                      {status.lastSyncError}
-                    </p>
+              <p className="flex items-center justify-between font-medium text-slate-600">
+                <span>Servidor</span>
+                <span
+                  className={cn(
+                    "h-2 w-2 rounded-full",
+                    status?.lastSyncError
+                      ? "bg-rose-500"
+                      : status?.loggedIn
+                        ? "bg-emerald-500"
+                        : "bg-slate-300",
                   )}
-                </>
+                  title={status?.lastSyncError ?? (status?.loggedIn ? "Conectado" : "Sin sesión")}
+                />
+              </p>
+              <p className="mt-1 truncate">{status?.email ?? "Sin iniciar sesión"}</p>
+              <p className="mt-1">
+                {pending > 0
+                  ? `${pending} ${pending === 1 ? "cambio pendiente" : "cambios pendientes"}`
+                  : "Todo sincronizado"}
+              </p>
+              <p className="mt-0.5 text-[11px] text-slate-400">
+                {status?.lastSyncAt
+                  ? `Última sincronización: ${formatDateTimeEs(status.lastSyncAt)}`
+                  : "—"}
+              </p>
+              {status?.lastSyncError && (
+                <p className="mt-1 line-clamp-2 text-[11px] text-rose-600">
+                  {status.lastSyncError}
+                </p>
               )}
             </div>
           </div>

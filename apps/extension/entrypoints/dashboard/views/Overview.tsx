@@ -252,10 +252,10 @@ export function Overview({
                   Abre una oferta en LinkedIn, Computrabajo o Indeed y pulsa “Guardar en Postulia”.
                 </li>
                 <li>O crea una postulación manual con el botón “Nueva postulación”.</li>
-                <li>Configura tu servidor en Ajustes para sincronizar entre dispositivos.</li>
+                <li>Tus datos se guardan en este navegador; puedes exportarlos desde Ajustes.</li>
                 <li>
-                  Puedes mover el estado en el tablero Kanban; los recordatorios se programan según
-                  los días configurados.
+                  Puedes mover el estado en el tablero Kanban; los recordatorios se programan al
+                  postular.
                 </li>
               </ol>
             </div>

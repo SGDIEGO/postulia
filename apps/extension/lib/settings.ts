@@ -34,9 +34,18 @@ export const DEFAULT_SETTINGS: PostuliaSettings = {
 
 const SETTINGS_KEY = "settings";
 
+/**
+ * Combina lo guardado con los valores por defecto. Se usa tanto al leer de
+ * IndexedDB como en la vista de Ajustes, donde una fila ausente no debe
+ * confundirse con “todavía cargando”.
+ */
+export function resolveSettings(stored?: Partial<PostuliaSettings> | null): PostuliaSettings {
+  return { ...DEFAULT_SETTINGS, ...(stored ?? {}) };
+}
+
 export async function getSettings(): Promise<PostuliaSettings> {
   const stored = await getMeta<Partial<PostuliaSettings>>(SETTINGS_KEY);
-  return { ...DEFAULT_SETTINGS, ...(stored ?? {}) };
+  return resolveSettings(stored);
 }
 
 export async function updateSettings(patch: Partial<PostuliaSettings>): Promise<PostuliaSettings> {

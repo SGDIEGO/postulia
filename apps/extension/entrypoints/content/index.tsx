@@ -1,6 +1,6 @@
 import { defineContentScript } from "wxt/utils/define-content-script";
 import { browser } from "wxt/browser";
-import { extractJob } from "~/lib/extractors";
+import { extractPage } from "~/lib/extractors";
 import { createShadowRootUi } from "wxt/utils/content-script-ui/shadow-root";
 import { createRoot } from "react-dom/client";
 import { CaptureWidget } from "./CaptureWidget";
@@ -22,7 +22,7 @@ export default defineContentScript({
       const request = message as { type?: string };
 
       if (request?.type === "postulia:extract") {
-        sendResponse(extractJob(window.location.href, document));
+        sendResponse(extractPage(window.location.href, document));
         return false;
       }
 
