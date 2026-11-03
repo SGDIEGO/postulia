@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from "fastify";
 import cors, { type FastifyCorsOptions } from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
@@ -9,6 +11,7 @@ import { prismaPlugin } from "./plugins/prisma.js";
 import applicationsRoutes from "./routes/applications.js";
 import authRoutes from "./routes/auth.js";
 import healthRoutes from "./routes/health.js";
+import linkedinRoutes from "./routes/linkedin.js";
 import remindersRoutes from "./routes/reminders.js";
 import statsRoutes from "./routes/stats.js";
 import syncRoutes from "./routes/sync.js";
@@ -120,10 +123,18 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   await app.register(healthRoutes);
   await app.register(authRoutes);
   await app.register(applicationsRoutes);
+  await app.register(linkedinRoutes);
   await app.register(remindersRoutes);
   await app.register(tagsRoutes);
   await app.register(syncRoutes);
   await app.register(statsRoutes);
+
+  /* Panel de revisión de LinkedIn (servido como archivo estático) */
+  app.get("/panel", async (_request, reply) => {
+    const panelPath = join(process.cwd(), "src", "public", "panel.html");
+    const html = readFileSync(panelPath, "utf-8");
+    reply.type("text/html").send(html);
+  });
 
   return app;
 }

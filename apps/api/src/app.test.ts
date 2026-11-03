@@ -16,6 +16,11 @@ const testEnv: Env = {
   RATE_LIMIT_MAX: 10_000,
   RATE_LIMIT_WINDOW: "1 minute",
   ALLOW_REGISTRATION: true,
+  SMTP_HOST: "smtp.gmail.com",
+  SMTP_PORT: 587,
+  SMTP_USER: "",
+  SMTP_PASS: "",
+  SMTP_FROM: "test@postulia.local",
 };
 
 async function setup() {

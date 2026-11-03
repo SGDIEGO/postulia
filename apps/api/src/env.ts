@@ -24,6 +24,13 @@ const envSchema = z.object({
   RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(600),
   RATE_LIMIT_WINDOW: z.string().default("1 minute"),
   ALLOW_REGISTRATION: booleanFromString(true),
+
+  // Gmail SMTP (envío de correos)
+  SMTP_HOST: z.string().default("smtp.gmail.com"),
+  SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(587),
+  SMTP_USER: z.string().default(""),
+  SMTP_PASS: z.string().default(""),
+  SMTP_FROM: z.string().email().default("noreply@postulia.local"),
 });
 
 export type Env = z.infer<typeof envSchema>;

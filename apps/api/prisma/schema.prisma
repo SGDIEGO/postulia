@@ -9,17 +9,20 @@ datasource db {
 }
 
 model User {
-  id            String          @id @default(uuid()) @db.Uuid
-  email         String          @unique
-  passwordHash  String          @map("password_hash")
-  name          String?
-  createdAt     DateTime        @default(now()) @map("created_at")
-  updatedAt     DateTime        @updatedAt @map("updated_at")
-  applications  Application[]
-  events        ApplicationEvent[]
-  reminders     Reminder[]
-  tags          Tag[]
-  refreshTokens RefreshToken[]
+  id               String             @id @default(uuid()) @db.Uuid
+  email            String             @unique
+  passwordHash     String             @map("password_hash")
+  name             String?
+  createdAt        DateTime           @default(now()) @map("created_at")
+  updatedAt        DateTime           @updatedAt @map("updated_at")
+  applications     Application[]
+  events           ApplicationEvent[]
+  reminders        Reminder[]
+  tags             Tag[]
+  refreshTokens    RefreshToken[]
+  linkedInSearches LinkedInSearch[]
+  linkedInPosts    LinkedInPost[]
+  emailLogs        EmailLog[]
 
   @@map("users")
 }
@@ -127,6 +130,89 @@ model Tag {
 
   @@unique([userId, name])
   @@map("tags")
+}
+
+/**
+ * ======================== LINKEDIN SCRAPER ========================
+ */
+
+model LinkedInSearch {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  keywords  String    @map("keywords") // ej: "hiring junior developer"
+  location  String?   @map("location")
+  estado    Int       @default(1) @map("estado") // 0=inactivo, 1=activo, 2=eliminado
+  lastRunAt DateTime? @map("last_run_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+  deletedBy String?   @map("deleted_by")
+
+  user  User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  posts LinkedInPost[]
+
+  @@index([userId, estado])
+  @@map("linkedin_searches")
+}
+
+model LinkedInPost {
+  id              String    @id @default(uuid()) @db.Uuid
+  searchId        String    @map("search_id") @db.Uuid
+  userId          String    @map("user_id") @db.Uuid
+  linkedinPostUrl String    @unique @map("linkedin_post_url")
+  recruiterName   String?   @map("recruiter_name")
+  company         String?
+  title           String?
+  contentSnippet  String?   @map("content_snippet")
+  postedAt        DateTime? @map("posted_at")
+  scrapedAt       DateTime  @default(now()) @map("scraped_at")
+
+  // Campos prospecto para correo electrónico
+  prospectEmail String?   @map("prospect_email")
+  prospectName  String?   @map("prospect_name")
+  emailSubject  String?   @map("email_subject")
+  emailBody     String?   @map("email_body")
+  emailStatus   String    @default("pending") @map("email_status") // pending, edited, approved, sent, error
+  sentAt        DateTime? @map("sent_at")
+  sentBy        String?   @map("sent_by")
+  smtpResponse  String?   @map("smtp_response")
+
+  estado    Int       @default(1) @map("estado") // 0=inactivo, 1=activo, 2=eliminado
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+  deletedBy String?   @map("deleted_by")
+
+  search   LinkedInSearch @relation(fields: [searchId], references: [id], onDelete: Cascade)
+  user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  emailLog EmailLog[]
+
+  @@index([userId, estado])
+  @@index([searchId, estado])
+  @@index([emailStatus])
+  @@map("linkedin_posts")
+}
+
+model EmailLog {
+  id             String   @id @default(uuid()) @db.Uuid
+  postId         String   @map("post_id") @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  recipientEmail String   @map("recipient_email")
+  subject        String
+  body           String?
+  sentAt         DateTime @default(now()) @map("sent_at")
+  status         String   @map("status") // sent, error
+  errorMessage   String?  @map("error_message")
+  estado         Int      @default(1) @map("estado") // 0=inactivo, 1=activo, 2=eliminado
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  post LinkedInPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([postId, estado])
+  @@index([userId, estado])
+  @@map("email_logs")
 }
 
 model ApplicationTag {

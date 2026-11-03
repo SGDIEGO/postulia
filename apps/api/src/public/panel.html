@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Postulia — Panel de Reclutadores LinkedIn</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; background: #f5f7fa; color: #1a1a1a; }
+    header { background: #0077b5; color: #fff; padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; }
+    header h1 { margin: 0; font-size: 1.25rem; }
+    .btn { border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 0.9rem; font-weight: 600; }
+    .btn-primary { background: #0077b5; color: #fff; }
+    .btn-primary:hover { background: #005582; }
+    .btn-success { background: #2e9e5b; color: #fff; }
+    .btn-success:hover { background: #1f7a44; }
+    .btn-danger { background: #d32f2f; color: #fff; }
+    .btn-danger:hover { background: #b71c1c; }
+    .btn-outline { background: transparent; border: 1px solid #ccc; color: #333; }
+    .btn-outline:hover { background: #f0f0f0; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .container { max-width: 1200px; margin: 0 auto; padding: 1rem; }
+    .card { background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 1rem; overflow: hidden; }
+    .card-header { padding: 1rem; border-bottom: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap; }
+    .card-body { padding: 1rem; }
+    .badge { display: inline-block; padding: 0.2rem 0.6rem; border-radius: 999px; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; }
+    .badge-pending { background: #e3f2fd; color: #1565c0; }
+    .badge-edited { background: #fff3e0; color: #e65100; }
+    .badge-approved { background: #e8f5e9; color: #2e7d32; }
+    .badge-sent { background: #e0f7fa; color: #006064; }
+    .badge-error { background: #ffebee; color: #b71c1c; }
+    input, textarea { width: 100%; padding: 0.5rem; border: 1px solid #d1d5db; border-radius: 4px; font-size: 0.9rem; }
+    textarea { min-height: 80px; font-family: inherit; resize: vertical; }
+    label { display: block; font-size: 0.8rem; font-weight: 600; color: #374151; margin-bottom: 0.25rem; }
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    @media (max-width: 768px) { .form-grid { grid-template-columns: 1fr; } }
+    .empty { text-align: center; padding: 3rem; color: #666; }
+    .alert { padding: 0.75rem 1rem; border-radius: 6px; margin-bottom: 1rem; font-size: 0.9rem; display: none; }
+    .alert-error { background: #fdecea; color: #b71c1c; border: 1px solid #f5c6cb; }
+    .alert-success { background: #e6f7ee; color: #2e7d32; border: 1px solid #b2dfc7; }
+    .smtp-status { font-size: 0.8rem; padding: 0.4rem 0.8rem; border-radius: 4px; display: inline-block; margin-left: 0.5rem; }
+    .smtp-ok { background: #e8f5e9; color: #1b5e20; }
+    .smtp-bad { background: #ffebee; color: #b71c1c; }
+    .url-link { color: #0077b5; text-decoration: none; font-size: 0.85rem; word-break: break-all; }
+    .url-link:hover { text-decoration: underline; }
+    .actions { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.75rem; }
+    .post-item { padding: 0.75rem; border-bottom: 1px solid #eee; }
+    .post-item:last-child { border-bottom: none; }
+    .post-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; margin-bottom: 0.5rem; }
+    .post-title { font-weight: 600; }
+    .post-company { font-size: 0.85rem; color: #555; }
+    .post-url { font-size: 0.8rem; color: #888; word-break: break-all; margin-top: 0.25rem; }
+    .post-snippet { font-size: 0.9rem; max-height: 60px; overflow: hidden; text-overflow: ellipsis; margin-top: 0.5rem; color: #444; }
+    .log-item { padding: 0.75rem; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: flex-start; }
+    .log-item:last-child { border-bottom: none; }
+    .search-item { padding: 0.75rem; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; }
+    .search-item:last-child { border-bottom: none; }
+    #modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 100; align-items: center; justify-content: center; }
+    #modal > div { background: #fff; border-radius: 8px; width: min(90vw, 700px); max-height: 90vh; overflow: auto; display: flex; flex-direction: column; }
+    .modal-header { padding: 1rem 1.5rem; border-bottom: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center; }
+    .modal-body { padding: 1.5rem; }
+    .modal-footer { padding: 1rem 1.5rem; border-top: 1px solid #e5e7eb; display: flex; gap: 0.5rem; justify-content: flex-end; }
+  </style>
+</head>
+<body>
+<header>
+  <h1>🔗 Postulia — Reclutadores LinkedIn</h1>
+  <div style="display:flex;align-items:center;gap:0.5rem">
+    <button class="btn btn-outline" id="btn-verify-smtp">Verificar SMTP Gmail</button>
+    <span class="smtp-status" id="smtp-status">—</span>
+  </div>
+</header>
+
+<!-- Sesión -->
+<div class="card">
+  <div class="card-body">
+    <div id="auth-form" style="display:flex;gap:0.5rem;align-items:flex-end;flex-wrap:wrap;margin-bottom:1rem">
+      <div style="display:flex;flex-direction:column;gap:0.25rem">
+        <label style="font-size:0.75rem">Correo</label>
+        <input type="email" id="login-email" placeholder="tú@correo.com" style="width:220px"/>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:0.25rem">
+        <label style="font-size:0.75rem">Contraseña</label>
+        <input type="password" id="login-pass" placeholder="••••••••" style="width:220px"/>
+      </div>
+      <button class="btn btn-primary" id="btn-login" style="height:38px">Iniciar sesión</button>
+      <button class="btn btn-outline" id="btn-register" style="height:38px;display:none">Crear cuenta</button>
+    </div>
+    <div id="user-info" style="display:none;gap:0.5rem;align-items:center;color:#374151;font-size:0.9rem">
+      <strong>Sesión:</strong> <span id="user-email"></span>
+      <button class="btn btn-danger btn-outline" id="btn-logout" style="font-size:0.85rem">Cerrar sesión</button>
+    </div>
+  </div>
+</div>
+
+<div class="container">
+  <div id="alert-error" class="alert alert-error"></div>
+  <div id="alert-success" class="alert alert-success"></div>
+
+  <!-- Búsqueda -->
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <h2 style="margin:0;font-size:1rem">Nueva búsqueda</h2>
+        <p style="margin:0;font-size:0.85rem;color:#666">Ej: <code>"hiring junior developer"</code></p>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="form-grid">
+        <div>
+          <label>Palabras clave</label>
+          <input type="text" id="kw-keywords" placeholder="hiring junior developer"/>
+        </div>
+        <div>
+          <label>Ubicación (opcional)</label>
+          <input type="text" id="kw-location" placeholder="Remoto, LATAM..."/>
+        </div>
+      </div>
+      <div style="margin-top:1rem">
+        <button class="btn btn-primary" id="btn-create-search">Crear búsqueda</button>
+        <button class="btn btn-primary" id="btn-scrape" style="margin-left:0.5rem">Ejecutar scraping ahora</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Búsquedas guardadas -->
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <h2 style="margin:0;font-size:1rem">Búsquedas configuradas</h2>
+      </div>
+    </div>
+    <div class="card-body" id="searches-list">
+      <div class="empty">Cargando búsquedas...</div>
+    </div>
+  </div>
+
+  <!-- Posts pendientes -->
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <h2 style="margin:0;font-size:1rem">Posts para revisar y enviar</h2>
+        <p style="margin:0;font-size:0.85rem;color:#666">Solo posts activos (estado = 1)</p>
+      </div>
+    </div>
+    <div class="card-body">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem">
+        <label>Filtrar por estado de correo:</label>
+        <select id="filter-email-status" style="padding:0.4rem">
+          <option value="pending">Pendiente</option>
+          <option value="edited">Editado</option>
+          <option value="approved">Aprobado</option>
+          <option value="sent">Enviado</option>
+          <option value="error">Error</option>
+          <option value="all">Todos</option>
+        </select>
+      </div>
+      <div id="posts-list">
+        <div class="empty">Cargando posts...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Logs de envío -->
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <h2 style="margin:0;font-size:1rem">Historial de envíos</h2>
+      </div>
+    </div>
+    <div class="card-body" id="email-logs-list">
+      <div class="empty">Cargando logs...</div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal de edición / envío -->
+<div id="modal">
+  <div>
+    <div class="modal-header">
+      <h3 style="margin:0">Editar y enviar correo</h3>
+      <button class="btn btn-danger" onclick="closeModal()">Cerrar</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="modal-post-id"/>
+      <div class="form-grid">
+        <div>
+          <label>Correo del prospecto</label>
+          <input type="email" id="modal-prospect-email" placeholder="reclutador@empresa.com"/>
+        </div>
+        <div>
+          <label>Nombre del prospecto</label>
+          <input type="text" id="modal-prospect-name" placeholder="Juan Recruiter"/>
+        </div>
+      </div>
+      <div style="margin-top:1rem">
+        <label>Asunto</label>
+        <input type="text" id="modal-subject" placeholder="Oportunidad para desarrollador junior"/>
+      </div>
+      <div style="margin-top:1rem">
+        <label>Cuerpo del correo (HTML)</label>
+        <textarea id="modal-body" rows="8" placeholder="Escribe aquí el mensaje..."></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="saveDraft()">Guardar borrador</button>
+      <button class="btn btn-success" onclick="sendEmail()">Enviar correo</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const API_BASE = "/api/linkedin";
+const API_AUTH = "/api/auth";
+let editingPostId = null;
+
+function $el(id) { return document.getElementById(id); }
+
+function showAlert(elId, msg, type) {
+  const el = $el(elId);
+  el.textContent = msg;
+  el.className = `alert alert-${type}`;
+  el.style.display = "block";
+  setTimeout(() => { el.style.display = "none"; }, 5000);
+}
+
+function getToken() {
+  return localStorage.getItem("postulia_token") || "";
+}
+
+/**
+ * Cliente de API que inyecta el token JWT automáticamente desde localStorage.
+ */
+async function api(path, opts = {}) {
+  const token = getToken();
+  const headers = { ...opts.headers };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  if (opts.body && !headers["Content-Type"]) headers["Content-Type"] = "application/json";
+
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: opts.method || "GET",
+    headers,
+    body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+  });
+
+  let data;
+  try { data = await res.json(); } catch { data = {}; }
+  if (!res.ok) throw new Error(data.message || `Error ${res.status}`);
+  return data;
+}
+
+async function authFetch(path, opts = {}) {
+  const res = await fetch(`${API_AUTH}${path}`, {
+    method: opts.method || "POST",
+    headers: { "Content-Type": "application/json", ...opts.headers },
+    body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+  });
+  let data;
+  try { data = await res.json(); } catch { data = {}; }
+  if (!res.ok) throw new Error(data.message || `Error ${res.status}`);
+  return data;
+}
+
+function escapeHtml(t) {
+  if (!t) return "";
+  const d = document.createElement("div");
+  d.textContent = t;
+  return d.innerHTML;
+}
+
+/* ---------- Auth ---------- */
+async function doLogin() {
+  const email = $el("login-email").value.trim();
+  const pass = $el("login-pass").value.trim();
+  if (!email || !pass) return showAlert("alert-error", "Ingresa correo y contraseña", "error");
+  try {
+    const session = await authFetch("/login", { body: { email, password: pass } });
+    localStorage.setItem("postulia_token", session.accessToken);
+    showAlert("alert-success", "Sesión iniciada", "success");
+    updateAuthUI();
+    loadAll();
+  } catch (e) { showAlert("alert-error", e.message, "error"); }
+}
+
+async function doRegister() {
+  const email = $el("login-email").value.trim();
+  const pass = $el("login-pass").value.trim();
+  if (!email || !pass) return showAlert("alert-error", "Ingresa correo y contraseña", "error");
+  try {
+    await authFetch("/register", { body: { email, password: pass, name: email.split("@")[0] } });
+    showAlert("alert-success", "Cuenta creada. Ahora inicia sesión", "success");
+  } catch (e) { showAlert("alert-error", e.message, "error"); }
+}
+
+function doLogout() {
+  localStorage.removeItem("postulia_token");
+  updateAuthUI();
+  loadAll();
+}
+
+function updateAuthUI() {
+  const token = getToken();
+  const authForm = $el("auth-form");
+  const userInfo = $el("user-info");
+  const btnRegister = $el("btn-register");
+  const userEmail = $el("user-email");
+  if (token) {
+    authForm.style.display = "none";
+    btnRegister.style.display = "none";
+    userInfo.style.display = "flex";
+    try {
+      const payload = JSON.parse(atob(token.split(".")[1]));
+      userEmail.textContent = payload.email || "usuario";
+    } catch { userEmail.textContent = "usuario"; }
+  } else {
+    authForm.style.display = "flex";
+    userInfo.style.display = "none";
+  }
+}
+
+/* ---------- Datos ---------- */
+async function loadSmtp() {
+  try {
+    const data = await api("/smtp/verify");
+    const s = $el("smtp-status");
+    s.textContent = data.ok ? "✅ SMTP OK" : "❌ SMTP falló";
+    s.className = `smtp-status ${data.ok ? "smtp-ok" : "smtp-bad"}`;
+  } catch {
+    $el("smtp-status").textContent = "⚠️ No se pudo verificar SMTP";
+    $el("smtp-status").className = "smtp-status smtp-bad";
+  }
+}
+
+async function loadSearches() {
+  try {
+    const data = await api("/searches");
+    const container = $el("searches-list");
+    if (!data.length) {
+      container.innerHTML = '<div class="empty">No hay búsquedas. Crea una arriba.</div>';
+      return;
+    }
+    container.innerHTML = data.map(s => `
+      <div class="search-item">
+        <div>
+          <div style="font-weight:600">${escapeHtml(s.keywords)}</div>
+          <div style="font-size:0.8rem;color:#666">${s.location || "—"} • ${new Date(s.createdAt).toLocaleDateString()}</div>
+        </div>
+        <div style="display:flex;gap:0.4rem">
+          <button class="btn btn-primary btn-outline" onclick="appRunScrape('${s.id}')" style="font-size:0.8rem;padding:0.3rem 0.6rem">Scrapear</button>
+          <button class="btn btn-danger btn-outline" onclick="appDeleteSearch('${s.id}')" style="font-size:0.8rem;padding:0.3rem 0.6rem">Eliminar</button>
+        </div>
+      </div>
+    `).join("");
+  } catch (e) { showAlert("alert-error", e.message, "error"); }
+}
+
+async function loadPosts() {
+  try {
+    const status = $el("filter-email-status").value;
+    const qs = status === "all" ? "" : `?emailStatus=${status}`;
+    const data = await api(`/posts${qs}`);
+    const container = $el("posts-list");
+    if (!data.items.length) {
+      container.innerHTML = '<div class="empty">No hay posts para mostrar.</div>';
+      return;
+    }
+    container.innerHTML = data.items.map(p => `
+      <div class="post-item">
+        <div class="post-header">
+          <div>
+            <div class="post-title">${escapeHtml(p.title || "(sin título)")}</div>
+            <div class="post-company">${escapeHtml(p.company || "")} — ${escapeHtml(p.recruiterName || "")}</div>
+            <div class="post-url">${escapeHtml(p.linkedinPostUrl)}</div>
+          </div>
+          <span class="badge badge-${p.emailStatus}">${p.emailStatus}</span>
+        </div>
+        ${p.contentSnippet ? `<div class="post-snippet">${escapeHtml(p.contentSnippet)}</div>` : ""}
+        <div class="actions">
+          <button class="btn btn-outline" onclick="appOpenEditModal('${p.id}')" style="font-size:0.85rem;padding:0.35rem 0.7rem">Editar / Enviar</button>
+          <button class="btn btn-outline" onclick="appViewLog('${p.id}')" style="font-size:0.85rem;padding:0.35rem 0.7rem">Ver log</button>
+          <button class="btn btn-danger btn-outline" onclick="appDeletePost('${p.id}')" style="font-size:0.85rem;padding:0.35rem 0.7rem">Eliminar lógico</button>
+        </div>
+      </div>
+    `).join("");
+  } catch (e) { showAlert("alert-error", e.message, "error"); }
+}
+
+async function loadEmailLogs() {
+  try {
+    const data = await api("/email-logs");
+    const container = $el("email-logs-list");
+    if (!data.length) {
+      container.innerHTML = '<div class="empty">Sin envíos registrados.</div>';
+      return;
+    }
+    container.innerHTML = data.map(l => `
+      <div class="log-item">
+        <div>
+          <div style="font-weight:600">${escapeHtml(l.subject)}</div>
+          <div style="font-size:0.85rem;color:#555">${escapeHtml(l.recipient_email)}</div>
+          <div style="font-size:0.8rem;color:#888">${new Date(l.sentAt).toLocaleString()} • ${l.status}</div>
+        </div>
+        <span class="badge badge-${l.status}">${l.status}</span>
+      </div>
+    `).join("");
+  } catch (e) { showAlert("alert-error", e.message, "error"); }
+}
+
+async function loadAll() {
+  loadSmtp();
+  loadSearches();
+  loadPosts();
+  loadEmailLogs();
+}
+
+/* ---------- Acciones ---------- */
+async function appCreateSearch() {
+  const keywords = $el("kw-keywords").value.trim();
+  const location = $el("kw-location").value.trim() || null;
+  if (!keywords) return showAlert("alert-error", "Ingresa palabras clave", "error");
+  try {
+    await api("/searches", { method: "POST", body: { keywords, location } });
+    $el("kw-keywords").value = "";
+    $el("kw-location").value = "";
+    loadSearches();
+  } catch (e) { showAlert("alert-error", e.message, "error"); }
+}
+
+async function appRunScrape(searchId) {
+  try {
+    const btn = document.querySelector(`button[onclick="appRunScrape('${searchId}')"]`);
+    if (btn) { btn.textContent = "…"; btn.disabled = true; }
+    const data = await api(`/searches/${searchId}/scrape`, { method: "POST" });
+    if (btn) { btn.textContent = "Scrapear"; btn.disabled = false; }
+    showAlert("alert-success", `Se guardaron ${data.saved} posts (de ${data.searched} encontrados)`, "success");
+    loadPosts();
+    loadSearches();
+  } catch (e) { showAlert("alert-error", e.message, "error"); }
+}
+
+async function appDeleteSearch(id) {
+  if (!confirm("¿Eliminar esta búsqueda?")) return;
+  try {
+    await api(`/searches/${id}`, { method: "DELETE" });
+    loadSearches();
+  } catch (e) { showAlert("alert-error", e.message, "error"); }
+}
+
+async function appDeletePost(id) {
+  if (!confirm("¿Eliminar este post (borrado lógico)?")) return;
+  try {
+    await api(`/posts/${id}`, { method: "DELETE" });
+    loadPosts();
+  } catch (e) { showAlert("alert-error", e.message, "error"); }
+}
+
+function appOpenEditModal(id) {
+  editingPostId = id;
+  $el("modal-post-id").value = id;
+  $el("modal").style.display = "flex";
+}
+
+function closeModal() {
+  $el("modal").style.display = "none";
+  editingPostId = null;
+}
+
+async function appSaveDraft() {
+  const token = getToken();
+  const body = {
+    prospectEmail: $el("modal-prospect-email").value || null,
+    prospectName: $el("modal-prospect-name").value || null,
+    emailSubject: $el("modal-subject").value || null,
+    emailBody: $el("modal-body").value || null,
+    emailStatus: "edited",
+  };
+  try {
+    await api(`/posts/${editingPostId}`, { method: "PATCH", body });
+    showAlert("alert-success", "Borrador guardado", "success");
+    closeModal();
+    loadPosts();
+  } catch (e) { showAlert("alert-error", e.message, "error"); }
+}
+
+async function appSendEmail() {
+  const subject = $el("modal-subject").value.trim();
+  const bodyHtml = $el("modal-body").value.trim();
+  if (!subject || !bodyHtml) return showAlert("alert-error", "Asunto y cuerpo son obligatorios", "error");
+  try {
+    const btn = document.querySelector("button[onclick='appSendEmail()']");
+    if (btn) { btn.textContent = "Enviando…"; btn.disabled = true; }
+    const result = await api(`/posts/${editingPostId}/send`, {
+      method: "POST",
+      body: { subject, body: bodyHtml },
+    });
+    if (btn) { btn.textContent = "Enviar correo"; btn.disabled = false; }
+    showAlert("alert-success", `Enviado a ${result.accepted.join(", ")}`, "success");
+    closeModal();
+    loadPosts();
+    loadEmailLogs();
+  } catch (e) { showAlert("alert-error", e.message, "error"); }
+}
+
+async function appViewLog(postId) {
+  try {
+    const data = await api(`/posts/${postId}`);
+    const logs = data.emailLog || [];
+    if (!logs.length) { showAlert("alert-error", "Sin historial de envíos para este post", "error"); return; }
+    const last = logs[0];
+    alert(`Último envío:\nPara: ${last.recipient_email}\nEstado: ${last.status}\nFecha: ${new Date(last.sentAt).toLocaleString()}\n${last.errorMessage ? `Error: ${last.errorMessage}` : ""}`);
+  } catch (e) { showAlert("alert-error", e.message, "error"); }
+}
+
+/* ---------- Inicialización ---------- */
+$el("btn-create-search")?.addEventListener("click", appCreateSearch);
+$el("btn-scrape")?.addEventListener("click", async () => {
+  try {
+    const searches = await api("/searches");
+    if (searches.length) await appRunScrape(searches[0].id);
+    else showAlert("alert-error", "Primero crea una búsqueda", "error");
+  } catch (e) { showAlert("alert-error", e.message, "error"); }
+});
+$el("filter-email-status")?.addEventListener("change", loadPosts);
+$el("btn-login")?.addEventListener("click", doLogin);
+$el("btn-register")?.addEventListener("click", doRegister);
+$el("btn-logout")?.addEventListener("click", doLogout);
+$el("btn-verify-smtp")?.addEventListener("click", loadSmtp);
+
+// Cerrar modal al hacer clic fuera
+document.getElementById("modal")?.addEventListener("click", (e) => { if (e.target.id === "modal") closeModal(); });
+
+updateAuthUI();
+loadAll();
+</script>
+</body>
+</html>
