@@ -1,7 +1,7 @@
 import { defineBackground } from "wxt/utils/define-background";
 import { browser } from "wxt/browser";
 import { SYNC_DEFAULTS, type ApplicationStatus } from "@postulia/shared";
-import { db } from "~/lib/db";
+import { db, type LinkedInPostRecord } from "~/lib/db";
 import { apiRequest } from "~/lib/api";
 import { checkDueReminders, remindersSummary } from "~/lib/notifications";
 import { discoveryService } from "~/lib/discovery/service.js";
@@ -20,6 +20,8 @@ import type {
   CaptureResponse,
   DuplicateResponse,
   ExtensionStatus,
+  GenerateEmailResponse,
+  GenerateEmailErrorResponse,
 } from "~/lib/messaging";
 
 const SYNC_ALARM = "postulia:sync";
@@ -205,6 +207,75 @@ export default defineBackground(() => {
         case "postulia:alarms:reschedule": {
           await scheduleAlarms();
           return { ok: true };
+        }
+
+        case "postulia:generate-email": {
+          const settings = await getSettings();
+          if (!settings.serverUrl) {
+            return {
+              ok: false,
+              error: "Configura la URL de tu servidor en Ajustes antes de usar la IA.",
+            } as GenerateEmailErrorResponse;
+          }
+          if (!settings.accessToken) {
+            return {
+              ok: false,
+              error: "Inicia sesión en tu servidor para usar la IA.",
+            } as GenerateEmailErrorResponse;
+          }
+
+          try {
+            const response = await fetch(
+              `${settings.serverUrl.replace(/\/+$/, "")}/ia/generate-email`,
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${settings.accessToken}`,
+                },
+                body: JSON.stringify(request.post),
+              },
+            );
+
+            if (!response.ok) {
+              const body = await response.json().catch(() => null);
+              return {
+                ok: false,
+                error:
+                  body?.error?.message || body?.message || `Error ${response.status} del servidor`,
+              } as GenerateEmailErrorResponse;
+            }
+
+            const data = await response.json();
+            return {
+              ok: true,
+              draft: {
+                to: data.to ?? null,
+                subject: data.subject || "",
+                body: data.body || "",
+              },
+            } as GenerateEmailResponse;
+          } catch (error) {
+            return {
+              ok: false,
+              error:
+                error instanceof Error ? error.message : "No se pudo generar el correo con la IA.",
+            } as GenerateEmailErrorResponse;
+          }
+        }
+
+        case "postulia:save-linkedin-post": {
+          const record: LinkedInPostRecord = {
+            id: crypto.randomUUID(),
+            author: request.post.author,
+            text: request.post.text,
+            url: request.post.url,
+            postedAt: request.post.postedAt,
+            capturedAt: new Date().toISOString(),
+            emailDraftId: null,
+          };
+          await db.linkedinPosts.put(record);
+          return { ok: true, id: record.id };
         }
 
         case "postulia:open-sidepanel": {

@@ -36,6 +36,9 @@ export default defineConfig({
       "*://*.getonbrd.com/*",
       "*://*.torre.ai/*",
     ],
+    // La API propia (Oracle Cloud) se pide en tiempo de ejecución cuando el
+    // usuario configura la URL en Ajustes.
+    optional_host_permissions: ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"],
     action: {
       default_title: "Postulia — abrir panel",
     },

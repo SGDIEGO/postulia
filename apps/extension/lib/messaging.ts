@@ -24,6 +24,20 @@ export type BackgroundRequest =
   | { type: "postulia:open-sidepanel"; tabId?: number }
   | { type: "postulia:check-reminders" }
   | { type: "postulia:alarms:reschedule" }
+  // LinkedIn posts (propuestas laborales como post, no oferta de empleo)
+  | {
+      type: "postulia:generate-email";
+      post: {
+        author: string | null;
+        text: string | null;
+        url: string | null;
+        postedAt: string | null;
+      };
+    }
+  | {
+      type: "postulia:save-linkedin-post";
+      post: { author: string | null; text: string | null; url: string; postedAt: string | null };
+    }
   // Discovery
   | {
       type: "discovery:search";
@@ -78,6 +92,21 @@ export type DiscoveryActionResponse = { ok: boolean; error?: string };
 export type DiscoveryHistoryResponse = import("@postulia/shared").SearchHistory[];
 export type DiscoveryAlertResponse = import("@postulia/shared").SearchAlert[];
 export type DiscoveryAlertActionResponse = { ok: boolean };
+
+export interface EmailDraft {
+  to: string | null;
+  subject: string;
+  body: string;
+}
+
+export interface GenerateEmailResponse {
+  ok: true;
+  draft: EmailDraft;
+}
+export interface GenerateEmailErrorResponse {
+  ok: false;
+  error: string;
+}
 
 /** Envía una petición al service worker desde cualquier contexto. */
 export async function sendMessage<T>(

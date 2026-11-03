@@ -12,9 +12,11 @@ import {
   faCircleCheck,
   faCircleInfo,
   faCompass,
+  faEnvelope,
   faGear,
   faHouse,
   faMagnifyingGlass,
+  faRobot,
   faShuffle,
   faTableColumns,
   faTriangleExclamation,
@@ -35,7 +37,7 @@ import {
 } from "@postulia/shared";
 import { FaIcon } from "~/components/FaIcon";
 import { StatusBadge } from "~/components/StatusBadge";
-import { Button, Spinner, cn } from "~/components/ui";
+import { Button, Card, Field, Input, Spinner, cn } from "~/components/ui";
 import { useApplications, useExtensionStatus, useReminders } from "~/lib/hooks";
 import { isLocationFilterActive, resolveCountry } from "~/lib/discovery/location";
 import { isExtractPageResult } from "~/lib/extractors";
@@ -45,12 +47,30 @@ import {
   type CaptureResponse,
   type DuplicateResponse,
   type ExtensionStatus,
+  type GenerateEmailResponse,
+  type GenerateEmailErrorResponse,
 } from "~/lib/messaging";
+import { buildMailtoLink } from "~/lib/mail.service";
+
+export interface LinkedInPostData {
+  author: string | null;
+  text: string | null;
+  url: string;
+  postedAt: string | null;
+}
+
+export interface EmailDraft {
+  to: string | null;
+  subject: string;
+  body: string;
+}
 
 type CaptureState =
   | { stage: "loading" }
   | { stage: "empty"; message: string; url?: string }
   | { stage: "ready"; job: ExtractedJobResult; duplicate: boolean }
+  | { stage: "linkedin-post"; post: LinkedInPostData; duplicate: boolean }
+  | { stage: "email-preview"; post: LinkedInPostData; draft: EmailDraft }
   | { stage: "saved"; title: string }
   | { stage: "error"; message: string };
 
@@ -146,6 +166,8 @@ export function SidePanelApp() {
   const [status, setStatus] = useState<ApplicationStatus>("applied");
   const [notes, setNotes] = useState("");
   const [activeTabId, setActiveTabId] = useState<number | null>(null);
+  const [emailDraft, setEmailDraft] = useState<EmailDraft | null>(null);
+  const [emailBusy, setEmailBusy] = useState(false);
 
   // Discover state
   const [discoverQuery, setDiscoverQuery] = useState("");
@@ -176,6 +198,7 @@ export function SidePanelApp() {
     setCapture({ stage: "loading" });
     setNotes("");
     setStatus("applied");
+    setEmailDraft(null);
 
     try {
       const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
@@ -184,6 +207,33 @@ export function SidePanelApp() {
         return;
       }
       setActiveTabId(tab.id);
+
+      // --- Detectar post de LinkedIn (feed, no oferta de empleo) ---
+      if (/linkedin\.com/i.test(tab.url)) {
+        try {
+          const extracted = await browser.tabs.sendMessage(tab.id, {
+            type: "postulia:extract-linkedin-post",
+          });
+          const result = extracted as
+            { ok: true; post: LinkedInPostData } | { ok: false; error: string } | undefined;
+
+          if (result?.ok && result.post) {
+            const duplicate = await sendMessage<{ ok: boolean; id?: string }>({
+              type: "postulia:save-linkedin-post",
+              post: result.post,
+            }).catch(() => ({ ok: false }) as { ok: boolean; id?: string });
+
+            setCapture({
+              stage: "linkedin-post",
+              post: result.post,
+              duplicate: Boolean(duplicate.ok),
+            });
+            return;
+          }
+        } catch {
+          // Sin content script de linkedin-post: se inyecta.
+        }
+      }
 
       const extracted = await extractFromTab(tab.id, tab.url);
 
@@ -279,6 +329,65 @@ export function SidePanelApp() {
       stage: "error",
       message: "error" in response ? response.error : "No se pudo guardar la postulación",
     });
+  }
+
+  async function generateEmailForLinkedInPost(post: LinkedInPostData) {
+    setEmailBusy(true);
+    setEmailDraft(null);
+    try {
+      const response = await sendMessage<GenerateEmailResponse | GenerateEmailErrorResponse>({
+        type: "postulia:generate-email",
+        post,
+      });
+
+      if (!response.ok) {
+        setCapture({ stage: "error", message: response.error });
+        return;
+      }
+
+      setEmailDraft(response.draft);
+      setCapture({ stage: "email-preview", post, draft: response.draft });
+    } catch (error) {
+      setCapture({
+        stage: "error",
+        message: error instanceof Error ? error.message : "No se pudo generar el correo.",
+      });
+    } finally {
+      setEmailBusy(false);
+    }
+  }
+
+  async function openDraftInMail() {
+    if (!emailDraft) return;
+    const captureState = capture;
+    const post =
+      captureState.stage === "linkedin-post"
+        ? captureState.post
+        : captureState.stage === "email-preview"
+          ? captureState.post
+          : null;
+    if (!post) return;
+
+    const subject = emailDraft.subject
+      ? emailDraft.subject
+      : `Consulta sobre oportunidad laboral - ${post.author ?? "LinkedIn"}`;
+    const body = emailDraft.body;
+
+    try {
+      await buildMailtoLink({ to: emailDraft.to ?? undefined, subject, body });
+      // Abrir el enlace mailto en una nueva pestaña
+      const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+      await browser.tabs.create({
+        url: `mailto:?${new URLSearchParams({
+          ...(emailDraft.to ? { to: emailDraft.to } : {}),
+          subject,
+          body,
+        }).toString()}`,
+        openerTabId: tab?.id,
+      });
+    } catch {
+      setCapture({ stage: "error", message: "No se pudo abrir el cliente de correo." });
+    }
   }
 
   async function openDashboard(path: `/dashboard.html${string}` = "/dashboard.html") {
@@ -590,6 +699,106 @@ export function SidePanelApp() {
 
                   <Button size="sm" className="w-full" onClick={() => void save(capture.duplicate)}>
                     {capture.duplicate ? "Actualizar estado y guardar" : "Guardar postulación"}
+                  </Button>
+                </div>
+              )}
+
+              {capture.stage === "linkedin-post" && (
+                <div className="space-y-2">
+                  <div>
+                    <p className="text-sm font-semibold leading-tight text-slate-800">
+                      Propuesta laboral en LinkedIn
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      {capture.post.author ?? "Autor no disponible"}
+                      {capture.post.postedAt ? ` · ${capture.post.postedAt}` : ""}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-600 break-words">
+                      {capture.post.text ?? "Sin texto extraído"}
+                    </p>
+                    <p className="mt-1 break-all text-[10px] text-slate-400">{capture.post.url}</p>
+                  </div>
+
+                  {capture.duplicate && (
+                    <p className="rounded-lg bg-amber-50 px-2 py-1.5 text-[11px] text-amber-800">
+                      Este post ya fue capturado previamente.
+                    </p>
+                  )}
+
+                  <div className="space-y-2">
+                    <Button
+                      size="sm"
+                      className="w-full"
+                      onClick={() => void generateEmailForLinkedInPost(capture.post)}
+                      disabled={emailBusy}
+                    >
+                      {emailBusy ? (
+                        <span className="flex items-center justify-center gap-1.5">
+                          <span className="h-3 w-3 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                          Generando con IA…
+                        </span>
+                      ) : (
+                        <>
+                          <FaIcon icon={faRobot} size={14} /> Redactar correo con mi CV
+                        </>
+                      )}
+                    </Button>
+                    <p className="text-[10px] text-slate-400">
+                      Se usará tu CV subido en Ajustes y tu servidor de IA (Gemini).
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {capture.stage === "email-preview" && (
+                <div className="space-y-2">
+                  <div>
+                    <p className="text-sm font-semibold leading-tight text-slate-800">
+                      Borrador de correo
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      {capture.post.author ?? "Autor no disponible"}
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Field label="Asunto">
+                      <Input
+                        value={capture.draft.subject}
+                        onChange={(event) => {
+                          setEmailDraft({
+                            ...capture.draft,
+                            subject: event.target.value,
+                          });
+                        }}
+                        placeholder="Asunto del correo"
+                      />
+                    </Field>
+                    <Field label="Cuerpo">
+                      <textarea
+                        value={capture.draft.body}
+                        onChange={(event) => {
+                          setEmailDraft({
+                            ...capture.draft,
+                            body: event.target.value,
+                          });
+                        }}
+                        rows={6}
+                        className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs outline-none focus:border-brand-500"
+                      />
+                    </Field>
+                  </div>
+
+                  <Button size="sm" className="w-full" onClick={() => void openDraftInMail()}>
+                    <FaIcon icon={faEnvelope} size={14} /> Abrir en mi correo (mailto:)
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="subtle"
+                    className="w-full"
+                    onClick={() => void generateEmailForLinkedInPost(capture.post)}
+                  >
+                    Regenerar con IA
                   </Button>
                 </div>
               )}

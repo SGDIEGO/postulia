@@ -2,8 +2,10 @@ import { useEffect, useState } from "react";
 import { browser } from "wxt/browser";
 import {
   faArrowsRotate,
+  faCloud,
   faDownload,
   faFloppyDisk,
+  faRobot,
   faRightFromBracket,
   faServer,
   faUpload,
@@ -28,6 +30,10 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
   const { status, syncNow: syncFromStatus, syncing } = useExtensionStatus();
 
   const [apiUrl, setApiUrl] = useState("");
+  const [serverUrl, setServerUrl] = useState("");
+  const [iaProvider, setIaProvider] = useState("");
+  const [iaApiKey, setIaApiKey] = useState("");
+  const [cvFile, setCvFile] = useState<File | null>(null);
   const [mode, setMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -45,6 +51,9 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
   useEffect(() => {
     if (!settings) return;
     setApiUrl(settings.apiUrl);
+    setServerUrl(settings.serverUrl ?? "");
+    setIaProvider(settings.iaProvider ?? "");
+    setIaApiKey(settings.iaApiKey ?? "");
   }, [settings]);
 
   /** Reprograma las alarmas tras cambiar la sesión o la sincronización. */
@@ -84,6 +93,73 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
           : "No se pudo verificar el servidor. Revisa la URL y que la API esté desplegada.",
       );
       onRefreshStatus();
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function saveIAConfig() {
+    setBusy("ia");
+    setError(null);
+    setInfo(null);
+    try {
+      await updateSettings({
+        serverUrl: normalizeApiUrl(serverUrl) || null,
+        iaProvider: iaProvider || null,
+        iaApiKey: iaApiKey || null,
+      });
+      setInfo("Configuración de IA guardada.");
+      onRefreshStatus();
+    } catch (saveError) {
+      setError(
+        saveError instanceof Error
+          ? saveError.message
+          : "No se pudo guardar la configuración de IA.",
+      );
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function uploadCV() {
+    if (!cvFile) return;
+    if (!settings?.apiUrl) {
+      setError("Primero configura la URL de tu servidor en Ajustes.");
+      return;
+    }
+    setBusy("cv");
+    setError(null);
+    setInfo(null);
+    try {
+      const formData = new FormData();
+      formData.append("cv", cvFile);
+
+      const response = await fetch(`${normalizeApiUrl(settings.apiUrl)}/users/cv`, {
+        method: "POST",
+        headers: {
+          ...(settings.accessToken ? { Authorization: `Bearer ${settings.accessToken}` } : {}),
+        },
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(
+          body?.error?.message || body?.message || `Error ${response.status} al subir el CV`,
+        );
+      }
+
+      const data = await response.json();
+      await updateSettings({
+        cvText: data.cvText ?? null,
+        cvFileName: cvFile.name,
+        cvUploadedAt: data.uploadedAt ?? new Date().toISOString(),
+      });
+      setInfo(`CV "${cvFile.name}" subido y procesado correctamente.`);
+      setCvFile(null);
+      onRefreshStatus();
+    } catch (cvError) {
+      setError(cvError instanceof Error ? cvError.message : "No se pudo subir el CV.");
     } finally {
       setBusy(null);
     }
@@ -226,6 +302,94 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
               )}
             </div>
           </Card>
+
+          {settings.apiUrl ? (
+            <Card
+              title="IA y correo"
+              actions={<FaIcon icon={faRobot} size={16} className="text-slate-400" />}
+            >
+              <div className="space-y-3">
+                <Field
+                  label="URL de tu servidor (Oracle Cloud)"
+                  hint="Ejemplo: https://tu-servidor.oraclecloud.com (sin barra final)"
+                >
+                  <Input
+                    value={serverUrl}
+                    onChange={(event) => setServerUrl(event.target.value)}
+                    placeholder="https://tu-servidor.oraclecloud.com"
+                  />
+                </Field>
+
+                <Field label="Proveedor de IA">
+                  <Input
+                    value={iaProvider}
+                    onChange={(event) => setIaProvider(event.target.value)}
+                    placeholder="gemini"
+                  />
+                  <p className="mt-1 text-[11px] text-slate-400">
+                    Por ahora usa "gemini". La API key se guarda solo en este navegador.
+                  </p>
+                </Field>
+
+                <Field label="API key de IA (opcional)">
+                  <Input
+                    type="password"
+                    value={iaApiKey}
+                    onChange={(event) => setIaApiKey(event.target.value)}
+                    placeholder="sk-... (si no está configurada en el servidor)"
+                  />
+                  <p className="mt-1 text-[11px] text-slate-400">
+                    Si tu servidor ya tiene la API key de Gemini, déjalo vacío.
+                  </p>
+                </Field>
+
+                <div className="flex items-center gap-2">
+                  <Button size="sm" onClick={() => void saveIAConfig()} disabled={busy === "ia"}>
+                    <FaIcon icon={faFloppyDisk} size={14} /> Guardar configuración IA
+                  </Button>
+                </div>
+
+                <div className="border-t border-slate-100 pt-3 space-y-3">
+                  <Field label="CV (PDF - subir una vez)">
+                    <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-xs text-slate-500 hover:border-brand-400">
+                      <FaIcon icon={faUpload} size={14} />
+                      {busy === "cv"
+                        ? "Procesando CV…"
+                        : cvFile
+                          ? `Seleccionado: ${cvFile.name}`
+                          : "Seleccionar archivo .pdf"}
+                      <input
+                        type="file"
+                        accept=".pdf"
+                        className="hidden"
+                        onChange={(event) => {
+                          const file = event.target.files?.[0];
+                          if (file) setCvFile(file);
+                        }}
+                      />
+                    </label>
+                  </Field>
+
+                  <div className="flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      onClick={() => void uploadCV()}
+                      disabled={busy === "cv" || !cvFile || !settings.apiUrl}
+                    >
+                      <FaIcon icon={faCloud} size={14} /> Subir CV al servidor
+                    </Button>
+                  </div>
+
+                  {settings.cvFileName && (
+                    <p className="rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+                      CV cargado: <strong>{settings.cvFileName}</strong>{" "}
+                      {settings.cvUploadedAt && <>· {formatDateTimeEs(settings.cvUploadedAt)}</>}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </Card>
+          ) : null}
 
           <Card
             title="Cuenta"

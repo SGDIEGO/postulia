@@ -16,6 +16,18 @@ export interface PostuliaSettings {
   notificationsEnabled: boolean;
   /** Días sugeridos para hacer seguimiento a una postulación. */
   followUpDays: number;
+  /** URL del servidor propio (Oracle Cloud) que expone /ia/generate-email. */
+  serverUrl: string | null;
+  /** Proveedor de IA configurado (por ahora "gemini"). */
+  iaProvider: string | null;
+  /** API key de IA. Se guarda localmente; si no hay, se pide al usar la función. */
+  iaApiKey: string | null;
+  /** Texto extraído del CV (PDF subido una vez por el usuario). */
+  cvText: string | null;
+  /** Nombre original del archivo CV. */
+  cvFileName: string | null;
+  /** Fecha de subida del CV. */
+  cvUploadedAt: string | null;
 }
 
 export const DEFAULT_SETTINGS: PostuliaSettings = {
@@ -30,6 +42,12 @@ export const DEFAULT_SETTINGS: PostuliaSettings = {
   syncEnabled: true,
   notificationsEnabled: true,
   followUpDays: 7,
+  serverUrl: null,
+  iaProvider: null,
+  iaApiKey: null,
+  cvText: null,
+  cvFileName: null,
+  cvUploadedAt: null,
 };
 
 const SETTINGS_KEY = "settings";

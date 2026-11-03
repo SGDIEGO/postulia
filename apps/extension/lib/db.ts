@@ -31,6 +31,16 @@ export interface LocalTag extends TagRecord {
   dirty?: SyncFlag;
 }
 
+export interface LinkedInPostRecord {
+  id: string;
+  author: string | null;
+  text: string | null;
+  url: string;
+  postedAt: string | null;
+  capturedAt: string;
+  emailDraftId: string | null;
+}
+
 export interface MetaRow {
   key: string;
   value: unknown;
@@ -46,6 +56,7 @@ export class PostuliaDatabase extends Dexie {
   jobDiscoveries!: Table<DiscoveredJob, string>;
   searchHistory!: Table<SearchHistory, string>;
   searchAlerts!: Table<SearchAlert, string>;
+  linkedinPosts!: Table<LinkedInPostRecord, string>;
 
   constructor() {
     super("postulia");
@@ -89,6 +100,10 @@ export class PostuliaDatabase extends Dexie {
             }
           });
       });
+
+    this.version(4).stores({
+      linkedinPosts: "id, url, capturedAt",
+    });
   }
 }
 
