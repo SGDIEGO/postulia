@@ -1,6 +1,13 @@
 import type { UserProfile } from "@postulia/shared";
 import { getMeta, setMeta } from "./db";
 
+/**
+ * URL fija del backend central (Oracle Cloud). Es la misma para todos los
+ * usuarios: registro, login, CV, generación de correo con IA, etc.
+ * Reemplaza este valor por la URL real de tu servidor desplegado.
+ */
+export const BACKEND_URL = "https://tu-servidor-oracle-cloud.com";
+
 export interface PostuliaSettings {
   /** URL base de la API, por ejemplo https://api.postulia.tudominio.com */
   apiUrl: string;
@@ -16,8 +23,6 @@ export interface PostuliaSettings {
   notificationsEnabled: boolean;
   /** Días sugeridos para hacer seguimiento a una postulación. */
   followUpDays: number;
-  /** URL del servidor propio (Oracle Cloud) que expone /ia/generate-email. */
-  serverUrl: string | null;
   /** Proveedor de IA configurado (por ahora "gemini"). */
   iaProvider: string | null;
   /** API key de IA. Se guarda localmente; si no hay, se pide al usar la función. */
@@ -31,7 +36,7 @@ export interface PostuliaSettings {
 }
 
 export const DEFAULT_SETTINGS: PostuliaSettings = {
-  apiUrl: "",
+  apiUrl: BACKEND_URL,
   accessToken: null,
   refreshToken: null,
   accessTokenExpiresAt: null,
@@ -42,7 +47,6 @@ export const DEFAULT_SETTINGS: PostuliaSettings = {
   syncEnabled: true,
   notificationsEnabled: true,
   followUpDays: 7,
-  serverUrl: null,
   iaProvider: null,
   iaApiKey: null,
   cvText: null,

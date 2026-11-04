@@ -12,7 +12,7 @@ import {
   pendingChangesCount,
   updateApplication,
 } from "~/lib/repository";
-import { getSettings, hasSession, updateSettings } from "~/lib/settings";
+import { getSettings, hasSession, updateSettings, BACKEND_URL } from "~/lib/settings";
 import { syncNow } from "~/lib/sync";
 import type {
   BackgroundRequest,
@@ -211,12 +211,6 @@ export default defineBackground(() => {
 
         case "postulia:generate-email": {
           const settings = await getSettings();
-          if (!settings.serverUrl) {
-            return {
-              ok: false,
-              error: "Configura la URL de tu servidor en Ajustes antes de usar la IA.",
-            } as GenerateEmailErrorResponse;
-          }
           if (!settings.accessToken) {
             return {
               ok: false,
@@ -225,17 +219,14 @@ export default defineBackground(() => {
           }
 
           try {
-            const response = await fetch(
-              `${settings.serverUrl.replace(/\/+$/, "")}/ia/generate-email`,
-              {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  Authorization: `Bearer ${settings.accessToken}`,
-                },
-                body: JSON.stringify(request.post),
+            const response = await fetch(`${BACKEND_URL.replace(/\/+$/, "")}/ia/generate-email`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${settings.accessToken}`,
               },
-            );
+              body: JSON.stringify(request.post),
+            });
 
             if (!response.ok) {
               const body = await response.json().catch(() => null);

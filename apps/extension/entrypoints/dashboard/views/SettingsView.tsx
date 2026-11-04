@@ -30,7 +30,6 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
   const { status, syncNow: syncFromStatus, syncing } = useExtensionStatus();
 
   const [apiUrl, setApiUrl] = useState("");
-  const [serverUrl, setServerUrl] = useState("");
   const [iaProvider, setIaProvider] = useState("");
   const [iaApiKey, setIaApiKey] = useState("");
   const [cvFile, setCvFile] = useState<File | null>(null);
@@ -51,7 +50,6 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
   useEffect(() => {
     if (!settings) return;
     setApiUrl(settings.apiUrl);
-    setServerUrl(settings.serverUrl ?? "");
     setIaProvider(settings.iaProvider ?? "");
     setIaApiKey(settings.iaApiKey ?? "");
   }, [settings]);
@@ -104,7 +102,6 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
     setInfo(null);
     try {
       await updateSettings({
-        serverUrl: normalizeApiUrl(serverUrl) || null,
         iaProvider: iaProvider || null,
         iaApiKey: iaApiKey || null,
       });
@@ -309,17 +306,6 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
               actions={<FaIcon icon={faRobot} size={16} className="text-slate-400" />}
             >
               <div className="space-y-3">
-                <Field
-                  label="URL de tu servidor (Oracle Cloud)"
-                  hint="Ejemplo: https://tu-servidor.oraclecloud.com (sin barra final)"
-                >
-                  <Input
-                    value={serverUrl}
-                    onChange={(event) => setServerUrl(event.target.value)}
-                    placeholder="https://tu-servidor.oraclecloud.com"
-                  />
-                </Field>
-
                 <Field label="Proveedor de IA">
                   <Input
                     value={iaProvider}
