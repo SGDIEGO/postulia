@@ -1,7 +1,8 @@
 /**
- * Servicio para generar un borrador de correo a partir de un post de LinkedIn.
+ * Servicio para generar y enviar un correo a partir de un post de LinkedIn.
  * La llamada se hace a tu propio backend (Oracle Cloud), que es quien tiene la
- * API key de Gemini y se encarga de leer el CV del usuario.
+ * API key de Gemini, el CV del usuario y las credenciales SMTP para enviar el
+ * correo con el PDF adjunto.
  */
 export interface LinkedInPost {
   author: string | null;
@@ -10,22 +11,23 @@ export interface LinkedInPost {
   postedAt: string | null;
 }
 
-export interface EmailDraft {
-  to: string | null;
-  subject: string;
-  body: string;
+export interface SendEmailResponse {
+  ok: boolean;
+  message?: string;
+  error?: string;
 }
 
 /**
- * Pide al backend que genere un borrador de correo usando el post de LinkedIn
- * y el CV almacenado del usuario autenticado.
+ * Pide al backend que genere y envíe un correo usando el post de LinkedIn,
+ * el CV almacenado del usuario y las credenciales SMTP configuradas en el
+ * servidor. El backend adjunta el CV (PDF) al correo.
  */
-export async function generateEmailDraft(
-  apiUrl: string,
+export async function sendEmailWithIA(
   accessToken: string | null,
   post: LinkedInPost,
-): Promise<EmailDraft> {
-  const response = await fetch(`${apiUrl.replace(/\/+$/, "")}/ia/generate-email`, {
+  backendUrl: string,
+): Promise<SendEmailResponse> {
+  const response = await fetch(`${backendUrl.replace(/\/+$/, "")}/ia/send-email`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -34,17 +36,17 @@ export async function generateEmailDraft(
     body: JSON.stringify(post),
   });
 
+  const data = await response.json().catch(() => null);
+
   if (!response.ok) {
-    const body = await response.json().catch(() => null);
-    throw new Error(
-      body?.error?.message || body?.message || `Error ${response.status} del servidor`,
-    );
+    return {
+      ok: false,
+      error: data?.error?.message || data?.message || `Error ${response.status} del servidor`,
+    };
   }
 
-  const data = await response.json();
   return {
-    to: data.to ?? null,
-    subject: data.subject || "",
-    body: data.body || "",
+    ok: true,
+    message: data?.message || "Correo enviado correctamente.",
   };
 }

@@ -26,7 +26,7 @@ export type BackgroundRequest =
   | { type: "postulia:alarms:reschedule" }
   // LinkedIn posts (propuestas laborales como post, no oferta de empleo)
   | {
-      type: "postulia:generate-email";
+      type: "postulia:send-email";
       post: {
         author: string | null;
         text: string | null;
@@ -93,19 +93,10 @@ export type DiscoveryHistoryResponse = import("@postulia/shared").SearchHistory[
 export type DiscoveryAlertResponse = import("@postulia/shared").SearchAlert[];
 export type DiscoveryAlertActionResponse = { ok: boolean };
 
-export interface EmailDraft {
-  to: string | null;
-  subject: string;
-  body: string;
-}
-
-export interface GenerateEmailResponse {
-  ok: true;
-  draft: EmailDraft;
-}
-export interface GenerateEmailErrorResponse {
-  ok: false;
-  error: string;
+export interface SendEmailResponse {
+  ok: boolean;
+  message?: string;
+  error?: string;
 }
 
 /** Envía una petición al service worker desde cualquier contexto. */

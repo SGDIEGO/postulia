@@ -20,8 +20,7 @@ import type {
   CaptureResponse,
   DuplicateResponse,
   ExtensionStatus,
-  GenerateEmailResponse,
-  GenerateEmailErrorResponse,
+  SendEmailResponse,
 } from "~/lib/messaging";
 
 const SYNC_ALARM = "postulia:sync";
@@ -209,17 +208,17 @@ export default defineBackground(() => {
           return { ok: true };
         }
 
-        case "postulia:generate-email": {
+        case "postulia:send-email": {
           const settings = await getSettings();
           if (!settings.accessToken) {
             return {
               ok: false,
-              error: "Inicia sesión en tu servidor para usar la IA.",
-            } as GenerateEmailErrorResponse;
+              error: "Inicia sesión en tu servidor para enviar el correo.",
+            } as SendEmailResponse;
           }
 
           try {
-            const response = await fetch(`${BACKEND_URL.replace(/\/+$/, "")}/ia/generate-email`, {
+            const response = await fetch(`${BACKEND_URL.replace(/\/+$/, "")}/ia/send-email`, {
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
@@ -228,30 +227,25 @@ export default defineBackground(() => {
               body: JSON.stringify(request.post),
             });
 
+            const data = await response.json().catch(() => null);
+
             if (!response.ok) {
-              const body = await response.json().catch(() => null);
               return {
                 ok: false,
                 error:
-                  body?.error?.message || body?.message || `Error ${response.status} del servidor`,
-              } as GenerateEmailErrorResponse;
+                  data?.error?.message || data?.message || `Error ${response.status} del servidor`,
+              } as SendEmailResponse;
             }
 
-            const data = await response.json();
             return {
               ok: true,
-              draft: {
-                to: data.to ?? null,
-                subject: data.subject || "",
-                body: data.body || "",
-              },
-            } as GenerateEmailResponse;
+              message: data?.message || "Correo enviado correctamente.",
+            } as SendEmailResponse;
           } catch (error) {
             return {
               ok: false,
-              error:
-                error instanceof Error ? error.message : "No se pudo generar el correo con la IA.",
-            } as GenerateEmailErrorResponse;
+              error: error instanceof Error ? error.message : "No se pudo enviar el correo.",
+            } as SendEmailResponse;
           }
         }
 
