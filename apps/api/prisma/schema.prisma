@@ -20,6 +20,7 @@ model User {
   reminders     Reminder[]
   tags          Tag[]
   refreshTokens RefreshToken[]
+  cvs           UserCv[]
 
   @@map("users")
 }
@@ -138,4 +139,18 @@ model ApplicationTag {
 
   @@id([applicationId, tagId])
   @@map("application_tags")
+}
+
+model UserCv {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  fileName  String   @map("file_name")
+  filePath  String   @map("file_path")
+  text      String?  @map("text")
+  uploadedAt DateTime @default(now()) @map("uploaded_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("user_cvs")
 }

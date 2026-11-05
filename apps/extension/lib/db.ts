@@ -35,7 +35,7 @@ export interface LinkedInPostRecord {
   id: string;
   author: string | null;
   text: string | null;
-  url: string;
+  url: string | null;
   postedAt: string | null;
   capturedAt: string;
   emailDraftId: string | null;

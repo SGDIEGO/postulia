@@ -16,6 +16,14 @@ const testEnv: Env = {
   RATE_LIMIT_MAX: 10_000,
   RATE_LIMIT_WINDOW: "1 minute",
   ALLOW_REGISTRATION: true,
+  SMTP_HOST: "smtp.test.local",
+  SMTP_PORT: 587,
+  SMTP_SECURE: "false",
+  SMTP_USER: "test@test.local",
+  SMTP_PASS: "test-pass",
+  SMTP_FROM: "Test <test@test.local>",
+  GEMINI_API_KEY: "test-gemini-key",
+  GEMINI_MODEL: "gemini-2.5-flash",
 };
 
 async function setup() {

@@ -1,5 +1,6 @@
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from "fastify";
 import cors, { type FastifyCorsOptions } from "@fastify/cors";
+import multipart from "@fastify/multipart";
 import rateLimit from "@fastify/rate-limit";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { loadEnv, type Env } from "./env.js";
@@ -13,6 +14,7 @@ import remindersRoutes from "./routes/reminders.js";
 import statsRoutes from "./routes/stats.js";
 import syncRoutes from "./routes/sync.js";
 import tagsRoutes from "./routes/tags.js";
+import usersRoutes from "./routes/users.js";
 
 export interface BuildAppOptions {
   env?: Env;
@@ -63,6 +65,13 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
     maxAge: 86_400,
+  });
+
+  await app.register(multipart, {
+    limits: {
+      files: 1,
+      fileSize: 10 * 1024 * 1024, // 10 MB max
+    },
   });
 
   await app.register(rateLimit, {
@@ -124,6 +133,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   await app.register(tagsRoutes);
   await app.register(syncRoutes);
   await app.register(statsRoutes);
+  await app.register(usersRoutes);
 
   return app;
 }

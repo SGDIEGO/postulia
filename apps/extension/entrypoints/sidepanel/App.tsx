@@ -15,8 +15,8 @@ import {
   faGear,
   faHouse,
   faMagnifyingGlass,
+  faPaperPlane,
   faRobot,
-  faRotateRight,
   faShuffle,
   faTableColumns,
   faTriangleExclamation,
@@ -49,22 +49,13 @@ import {
   type DuplicateResponse,
   type ExtensionStatus,
 } from "~/lib/messaging";
-import { sendEmailWithIA } from "~/lib/ia.service";
-
-export interface LinkedInPostData {
-  author: string | null;
-  text: string | null;
-  url: string;
-  postedAt: string | null;
-}
+import { generateEmailDraft, sendReviewedEmail, type EmailDraft } from "~/lib/ia.service";
+import { parsePastedPost } from "~/lib/linkedin-post";
 
 type CaptureState =
   | { stage: "loading" }
   | { stage: "empty"; message: string; url?: string }
   | { stage: "ready"; job: ExtractedJobResult; duplicate: boolean }
-  | { stage: "linkedin-post"; post: LinkedInPostData; duplicate: boolean }
-  | { stage: "email-sending"; post: LinkedInPostData }
-  | { stage: "email-sent"; post: LinkedInPostData; message: string }
   | { stage: "saved"; title: string }
   | { stage: "error"; message: string };
 
@@ -126,7 +117,7 @@ async function extractFromTab(
   }
 }
 
-type SidePanelTab = "capture" | "discover";
+type SidePanelTab = "capture" | "discover" | "post";
 
 const DISCOVER_PAGE_SIZE = 20;
 
@@ -160,7 +151,16 @@ export function SidePanelApp() {
   const [status, setStatus] = useState<ApplicationStatus>("applied");
   const [notes, setNotes] = useState("");
   const [activeTabId, setActiveTabId] = useState<number | null>(null);
-  const [emailBusy, setEmailBusy] = useState(false);
+
+  // Post IA: el usuario pega el texto del post de LinkedIn.
+  const [postText, setPostText] = useState("");
+  const [postUrl, setPostUrl] = useState("");
+  const [postEmail, setPostEmail] = useState("");
+  const [postBusy, setPostBusy] = useState(false);
+  const [postEmailTouched, setPostEmailTouched] = useState(false);
+  const [postDraft, setPostDraft] = useState<EmailDraft | null>(null);
+  const [postStage, setPostStage] = useState<"edit" | "review" | "sending" | "sent">("edit");
+  const [postResult, setPostResult] = useState<{ ok: boolean; message: string } | null>(null);
 
   // Discover state
   const [discoverQuery, setDiscoverQuery] = useState("");
@@ -200,40 +200,12 @@ export function SidePanelApp() {
       }
       setActiveTabId(tab.id);
 
-      // --- Detectar post de LinkedIn (feed, no oferta de empleo) ---
-      if (/linkedin\.com/i.test(tab.url)) {
-        try {
-          const extracted = await browser.tabs.sendMessage(tab.id, {
-            type: "postulia:extract-linkedin-post",
-          });
-          const result = extracted as
-            { ok: true; post: LinkedInPostData } | { ok: false; error: string } | undefined;
-
-          if (result?.ok && result.post) {
-            const duplicate = await sendMessage<{ ok: boolean; id?: string }>({
-              type: "postulia:save-linkedin-post",
-              post: result.post,
-            }).catch(() => ({ ok: false }) as { ok: boolean; id?: string });
-
-            setCapture({
-              stage: "linkedin-post",
-              post: result.post,
-              duplicate: Boolean(duplicate.ok),
-            });
-            return;
-          }
-        } catch {
-          // Sin content script de linkedin-post: se inyecta.
-        }
-      }
-
       const extracted = await extractFromTab(tab.id, tab.url);
 
       if (extracted === undefined) {
         setCapture({
           stage: "empty",
-          message:
-            "No se pudo acceder a esta página. Abre una oferta y pulsa el icono de Postulia en la barra de Chrome para activar la captura en este sitio.",
+          message: "No se pudo acceder a esta página. Recarga la pestaña y vuelve a intentar.",
           url: tab.url,
         });
         return;
@@ -248,7 +220,11 @@ export function SidePanelApp() {
               ? `Esta página de ${SOURCE_LABELS[classification.site]} no es la ficha de una oferta. Abre una oferta concreta y vuelve a intentar.`
               : "Esta página no parece una oferta. Si el portal no es compatible, abre la vacante y vuelve a pulsar el icono de Postulia.";
 
-        setCapture({ stage: "empty", message, url: extracted.pageUrl || tab.url });
+        setCapture({
+          stage: "empty",
+          message,
+          url: extracted.pageUrl || tab.url,
+        });
         return;
       }
 
@@ -323,34 +299,165 @@ export function SidePanelApp() {
     });
   }
 
-  async function sendEmailWithBackend(post: LinkedInPostData) {
-    setEmailBusy(true);
-    setCapture({ stage: "email-sending", post });
+  function handlePostTextChange(value: string) {
+    setPostText(value);
+    setPostResult(null);
+    setPostDraft(null);
+    setPostStage("edit");
+
+    if (!value.trim()) setPostEmailTouched(false);
+
+    const detected = parsePastedPost(value);
+    if (detected.email && !postEmailTouched) {
+      setPostEmail(detected.email);
+    }
+    if (detected.url && !postUrl.trim()) {
+      setPostUrl(detected.url);
+    }
+  }
+
+  function resetPostForm() {
+    setPostText("");
+    setPostUrl("");
+    setPostEmail("");
+    setPostEmailTouched(false);
+    setPostDraft(null);
+    setPostStage("edit");
+    setPostResult(null);
+  }
+
+  function buildPost() {
+    const parsed = parsePastedPost(postText);
+    return {
+      author: null,
+      text: parsed.text,
+      url: postUrl.trim() || parsed.url,
+      postedAt: null,
+    };
+  }
+
+  function isValidEmail(value: string): boolean {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+  }
+
+  /** Paso 1: pide el borrador. Nunca envía el correo. */
+  async function generatePostDraft(toOverride?: string) {
+    const parsed = parsePastedPost(postText);
+    if (!parsed.text) {
+      setPostResult({ ok: false, message: "Pega el texto del post antes de continuar." });
+      return;
+    }
+
+    const email = (toOverride ?? postEmail).trim();
+    if (email && !isValidEmail(email)) {
+      setPostResult({ ok: false, message: "El correo del reclutador no es válido." });
+      return;
+    }
+
+    setPostBusy(true);
+    setPostResult(null);
     try {
       const settings = await getSettings();
       if (!settings.accessToken) {
-        setCapture({ stage: "error", message: "Inicia sesión para enviar el correo." });
-        setEmailBusy(false);
+        setPostResult({ ok: false, message: "Inicia sesión para generar el correo." });
         return;
       }
 
-      const response = await sendEmailWithIA(settings.accessToken, post, settings.apiUrl);
+      const response = await generateEmailDraft(
+        settings.accessToken,
+        buildPost(),
+        settings.apiUrl,
+        email || null,
+      );
+
+      if (!response.ok || !response.draft) {
+        setPostResult({
+          ok: false,
+          message: response.error || "No se pudo generar el borrador.",
+        });
+        return;
+      }
+
+      setPostDraft({
+        to: response.draft.to ?? email,
+        subject: response.draft.subject,
+        body: response.draft.body,
+      });
+      setPostStage("review");
+    } catch (error) {
+      setPostResult({
+        ok: false,
+        message: error instanceof Error ? error.message : "No se pudo generar el borrador.",
+      });
+      setPostStage("edit");
+    } finally {
+      setPostBusy(false);
+    }
+  }
+
+  /** Paso 2: envía exactamente lo que el usuario revisó. */
+  async function sendReviewedPost() {
+    if (!postDraft) return;
+
+    const to = postDraft.to?.trim() ?? "";
+    if (!isValidEmail(to)) {
+      setPostResult({ ok: false, message: "Escribe un correo destinatario válido." });
+      return;
+    }
+    if (!postDraft.subject.trim()) {
+      setPostResult({ ok: false, message: "El asunto no puede estar vacío." });
+      return;
+    }
+    if (!postDraft.body.trim()) {
+      setPostResult({ ok: false, message: "El cuerpo del correo no puede estar vacío." });
+      return;
+    }
+
+    setPostStage("sending");
+    setPostResult(null);
+    try {
+      const settings = await getSettings();
+      if (!settings.accessToken) {
+        setPostStage("review");
+        setPostResult({ ok: false, message: "Inicia sesión para enviar el correo." });
+        return;
+      }
+
+      const response = await sendReviewedEmail(
+        settings.accessToken,
+        { to, subject: postDraft.subject.trim(), body: postDraft.body.trim() },
+        settings.apiUrl,
+      );
 
       if (!response.ok) {
-        setCapture({ stage: "error", message: response.error || "No se pudo enviar el correo." });
-        setEmailBusy(false);
+        setPostStage("review");
+        setPostResult({
+          ok: false,
+          message: response.error || "No se pudo enviar el correo.",
+        });
         return;
       }
 
-      setCapture({ stage: "email-sent", post, message: response.message || "Correo enviado." });
+      await sendMessage({
+        type: "postulia:save-linkedin-post",
+        post: buildPost(),
+      }).catch(() => undefined);
+
+      setPostStage("sent");
+      setPostResult({ ok: true, message: response.message || `Correo enviado a ${to}.` });
     } catch (error) {
-      setCapture({
-        stage: "error",
+      setPostStage("review");
+      setPostResult({
+        ok: false,
         message: error instanceof Error ? error.message : "No se pudo enviar el correo.",
       });
-    } finally {
-      setEmailBusy(false);
     }
+  }
+
+  function backToEdit() {
+    setPostDraft(null);
+    setPostStage("edit");
+    setPostResult(null);
   }
 
   async function openDashboard(path: `/dashboard.html${string}` = "/dashboard.html") {
@@ -539,7 +646,7 @@ export function SidePanelApp() {
 
       {/* Tabs */}
       <div className="flex border-b border-slate-200 bg-white px-2">
-        {(["capture", "discover"] as SidePanelTab[]).map((tab) => (
+        {(["capture", "post", "discover"] as SidePanelTab[]).map((tab) => (
           <button
             key={tab}
             type="button"
@@ -554,6 +661,10 @@ export function SidePanelApp() {
             {tab === "capture" ? (
               <>
                 <FaIcon icon={faCamera} size={14} /> Capturar
+              </>
+            ) : tab === "post" ? (
+              <>
+                <FaIcon icon={faRobot} size={14} /> Post IA
               </>
             ) : (
               <>
@@ -665,85 +776,6 @@ export function SidePanelApp() {
                   </Button>
                 </div>
               )}
-
-              {capture.stage === "linkedin-post" && (
-                <div className="space-y-2">
-                  <div>
-                    <p className="text-sm font-semibold leading-tight text-slate-800">
-                      Propuesta laboral en LinkedIn
-                    </p>
-                    <p className="text-xs text-slate-500">
-                      {capture.post.author ?? "Autor no disponible"}
-                      {capture.post.postedAt ? ` · ${capture.post.postedAt}` : ""}
-                    </p>
-                    <p className="mt-1 text-xs text-slate-600 break-words">
-                      {capture.post.text ?? "Sin texto extraído"}
-                    </p>
-                    <p className="mt-1 break-all text-[10px] text-slate-400">{capture.post.url}</p>
-                  </div>
-
-                  {capture.duplicate && (
-                    <p className="rounded-lg bg-amber-50 px-2 py-1.5 text-[11px] text-amber-800">
-                      Este post ya fue capturado previamente.
-                    </p>
-                  )}
-
-                  <div className="space-y-2">
-                    <Button
-                      size="sm"
-                      className="w-full"
-                      onClick={() => void sendEmailWithBackend(capture.post)}
-                      disabled={emailBusy}
-                    >
-                      {emailBusy ? (
-                        <span className="flex items-center justify-center gap-1.5">
-                          <span className="h-3 w-3 animate-spin rounded-full border-2 border-white/40 border-t-white" />
-                          Generando con IA…
-                        </span>
-                      ) : (
-                        <>
-                          <FaIcon icon={faRobot} size={14} /> Enviar correo con mi CV
-                        </>
-                      )}
-                    </Button>
-                    <p className="text-[10px] text-slate-400">
-                      Se usará tu CV subido en Ajustes y tu servidor (Gemini + SMTP).
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {capture.stage === "email-sending" && (
-                <div className="space-y-2">
-                  <div>
-                    <p className="text-sm font-semibold leading-tight text-slate-800">
-                      Enviando correo…
-                    </p>
-                    <p className="text-xs text-slate-500">
-                      {capture.post.author ?? "Autor no disponible"}
-                    </p>
-                  </div>
-                  <Spinner label="Generando con IA y enviando por SMTP…" />
-                </div>
-              )}
-
-              {capture.stage === "email-sent" && (
-                <div className="space-y-2">
-                  <div>
-                    <p className="flex items-start gap-1.5 rounded-lg bg-emerald-50 px-2 py-1.5 text-xs text-emerald-800">
-                      <FaIcon icon={faCircleCheck} size={14} className="mt-0.5" />
-                      Correo enviado
-                    </p>
-                    <p className="text-xs text-slate-500">{capture.message}</p>
-                    <p className="text-xs text-slate-500">
-                      {capture.post.author ?? "Autor no disponible"}
-                    </p>
-                  </div>
-                  <Button size="sm" className="w-full" onClick={() => void detect()}>
-                    <FaIcon icon={faRotateRight} size={14} /> Detectar otra publicación
-                  </Button>
-                </div>
-              )}
             </section>
 
             <section>
@@ -847,6 +879,237 @@ export function SidePanelApp() {
                     );
                   })}
                 </ul>
+              )}
+            </section>
+          </div>
+        )}
+
+        {activeTab === "post" && (
+          <div className="space-y-3">
+            <section className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+              <div className="mb-2 flex items-center justify-between">
+                <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Propuesta laboral en un post
+                </h2>
+                {(postText || postEmail || postUrl || postDraft || postResult) && (
+                  <button
+                    type="button"
+                    onClick={resetPostForm}
+                    disabled={postBusy || postStage === "sending"}
+                    className="text-[11px] font-medium text-brand-600 hover:underline disabled:opacity-50"
+                  >
+                    Limpiar
+                  </button>
+                )}
+              </div>
+
+              {postStage === "edit" && (
+                <>
+                  <p className="mb-2 text-[11px] text-slate-500">
+                    Copia el texto del post de LinkedIn y pégalo aquí. Detectaremos el correo
+                    automáticamente y Gemini redactará un borrador que podrás revisar antes de
+                    enviarlo.
+                  </p>
+
+                  <textarea
+                    value={postText}
+                    onChange={(event) => handlePostTextChange(event.target.value)}
+                    rows={9}
+                    placeholder={
+                      "Pega aquí el texto del post…\n\nEj: Buscamos desarrollador junior. Envía tu CV a rrhh@empresa.com"
+                    }
+                    className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs outline-none focus:border-brand-500"
+                  />
+
+                  <label className="mt-3 block text-[11px] font-medium text-slate-600">
+                    Correo del reclutador
+                    <input
+                      type="email"
+                      value={postEmail}
+                      onChange={(event) => {
+                        setPostEmail(event.target.value);
+                        setPostEmailTouched(true);
+                        setPostResult(null);
+                      }}
+                      placeholder="Se detecta del texto; escríbelo si no aparece"
+                      className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs outline-none focus:border-brand-500"
+                    />
+                  </label>
+
+                  <label className="mt-2 block text-[11px] font-medium text-slate-600">
+                    URL del post (opcional)
+                    <input
+                      type="url"
+                      value={postUrl}
+                      onChange={(event) => {
+                        setPostUrl(event.target.value);
+                        setPostResult(null);
+                      }}
+                      placeholder="https://www.linkedin.com/posts/…"
+                      className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs outline-none focus:border-brand-500"
+                    />
+                  </label>
+
+                  <Button
+                    size="sm"
+                    className="mt-3 w-full"
+                    onClick={() => void generatePostDraft()}
+                    disabled={postBusy || !postText.trim()}
+                  >
+                    {postBusy ? (
+                      <span className="flex items-center justify-center gap-1.5">
+                        <span className="h-3 w-3 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                        Generando borrador…
+                      </span>
+                    ) : (
+                      <>
+                        <FaIcon icon={faRobot} size={14} /> Generar borrador con IA
+                      </>
+                    )}
+                  </Button>
+
+                  <p className="mt-1 text-[10px] text-slate-400">
+                    No se envía nada todavía: primero verás el correo y podrás corregirlo. Se
+                    usará tu CV subido en Ajustes.
+                  </p>
+
+                  {postResult && (
+                    <p
+                      className={cn(
+                        "mt-2 rounded-lg px-2 py-1.5 text-[11px]",
+                        postResult.ok
+                          ? "bg-emerald-50 text-emerald-800"
+                          : "bg-rose-50 text-rose-700",
+                      )}
+                    >
+                      {postResult.message}
+                    </p>
+                  )}
+                </>
+              )}
+
+              {postStage !== "edit" && postDraft && (
+                <>
+                  {postStage === "sent" ? (
+                    <div className="space-y-2">
+                      <p className="flex items-start gap-1.5 rounded-lg bg-emerald-50 px-2 py-1.5 text-xs text-emerald-800">
+                        <FaIcon icon={faCircleCheck} size={14} className="mt-0.5" />
+                        {postResult?.message ?? "Correo enviado."}
+                      </p>
+                      <p className="text-[11px] text-slate-500">
+                        El borrador revisado se envió con tu CV adjunto y el post quedó guardado.
+                      </p>
+                      <Button size="sm" className="w-full" onClick={resetPostForm}>
+                        <FaIcon icon={faRobot} size={14} /> Redactar otro correo
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <div>
+                        <p className="text-sm font-semibold leading-tight text-slate-800">
+                          Revisa el correo antes de enviarlo
+                        </p>
+                        <p className="text-[11px] text-slate-500">
+                          Puedes corregir el destinatario, el asunto y el mensaje. Nada se envía
+                          hasta que pulses “Enviar correo”.
+                        </p>
+                      </div>
+
+                      <label className="block text-[11px] font-medium text-slate-600">
+                        Destinatario
+                        <input
+                          type="email"
+                          value={postDraft.to ?? ""}
+                          onChange={(event) =>
+                            setPostDraft({ ...postDraft, to: event.target.value })
+                          }
+                          disabled={postStage === "sending"}
+                          placeholder="reclutador@empresa.com"
+                          className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs outline-none focus:border-brand-500 disabled:bg-slate-50"
+                        />
+                      </label>
+
+                      <label className="block text-[11px] font-medium text-slate-600">
+                        Asunto
+                        <input
+                          type="text"
+                          value={postDraft.subject}
+                          onChange={(event) =>
+                            setPostDraft({ ...postDraft, subject: event.target.value })
+                          }
+                          disabled={postStage === "sending"}
+                          className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs outline-none focus:border-brand-500 disabled:bg-slate-50"
+                        />
+                      </label>
+
+                      <label className="block text-[11px] font-medium text-slate-600">
+                        Mensaje
+                        <textarea
+                          value={postDraft.body}
+                          onChange={(event) =>
+                            setPostDraft({ ...postDraft, body: event.target.value })
+                          }
+                          disabled={postStage === "sending"}
+                          rows={12}
+                          className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs leading-relaxed outline-none focus:border-brand-500 disabled:bg-slate-50"
+                        />
+                      </label>
+
+                      {postResult && !postResult.ok && (
+                        <p className="rounded-lg bg-rose-50 px-2 py-1.5 text-[11px] text-rose-700">
+                          {postResult.message}
+                        </p>
+                      )}
+
+                      <Button
+                        size="sm"
+                        className="w-full"
+                        onClick={() => void sendReviewedPost()}
+                        disabled={
+                          postBusy ||
+                          postStage === "sending" ||
+                          !postDraft.to?.trim() ||
+                          !postDraft.subject.trim() ||
+                          !postDraft.body.trim()
+                        }
+                      >
+                        {postStage === "sending" ? (
+                          <span className="flex items-center justify-center gap-1.5">
+                            <span className="h-3 w-3 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                            Enviando correo…
+                          </span>
+                        ) : (
+                          <>
+                            <FaIcon icon={faPaperPlane} size={14} /> Enviar correo
+                          </>
+                        )}
+                      </Button>
+
+                      <div className="flex items-center justify-between gap-2">
+                        <button
+                          type="button"
+                          onClick={backToEdit}
+                          disabled={postBusy || postStage === "sending"}
+                          className="text-[11px] font-medium text-slate-500 hover:underline disabled:opacity-50"
+                        >
+                          Volver
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void generatePostDraft(postDraft.to ?? postEmail)}
+                          disabled={postBusy || postStage === "sending"}
+                          className="text-[11px] font-medium text-brand-600 hover:underline disabled:opacity-50"
+                        >
+                          {postBusy ? "Regenerando…" : "Regenerar borrador"}
+                        </button>
+                      </div>
+
+                      <p className="text-[10px] text-slate-400">
+                        Se enviará con tu CV (PDF) adjunto desde el servidor de Postulia.
+                      </p>
+                    </div>
+                  )}
+                </>
               )}
             </section>
           </div>

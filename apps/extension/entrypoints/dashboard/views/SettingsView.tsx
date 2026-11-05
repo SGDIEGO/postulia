@@ -131,7 +131,7 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
       const formData = new FormData();
       formData.append("cv", cvFile);
 
-      const response = await fetch(`${normalizeApiUrl(settings.apiUrl)}/users/cv`, {
+      const response = await fetch(`${normalizeApiUrl(settings.apiUrl)}/api/users/cv`, {
         method: "POST",
         headers: {
           ...(settings.accessToken ? { Authorization: `Bearer ${settings.accessToken}` } : {}),

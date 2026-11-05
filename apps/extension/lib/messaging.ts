@@ -26,17 +26,8 @@ export type BackgroundRequest =
   | { type: "postulia:alarms:reschedule" }
   // LinkedIn posts (propuestas laborales como post, no oferta de empleo)
   | {
-      type: "postulia:send-email";
-      post: {
-        author: string | null;
-        text: string | null;
-        url: string | null;
-        postedAt: string | null;
-      };
-    }
-  | {
       type: "postulia:save-linkedin-post";
-      post: { author: string | null; text: string | null; url: string; postedAt: string | null };
+      post: { author: string | null; text: string | null; url: string | null; postedAt: string | null };
     }
   // Discovery
   | {

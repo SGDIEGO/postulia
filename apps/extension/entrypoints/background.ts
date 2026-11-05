@@ -12,7 +12,7 @@ import {
   pendingChangesCount,
   updateApplication,
 } from "~/lib/repository";
-import { getSettings, hasSession, updateSettings, BACKEND_URL } from "~/lib/settings";
+import { getSettings, hasSession, updateSettings } from "~/lib/settings";
 import { syncNow } from "~/lib/sync";
 import type {
   BackgroundRequest,
@@ -20,7 +20,6 @@ import type {
   CaptureResponse,
   DuplicateResponse,
   ExtensionStatus,
-  SendEmailResponse,
 } from "~/lib/messaging";
 
 const SYNC_ALARM = "postulia:sync";
@@ -208,48 +207,12 @@ export default defineBackground(() => {
           return { ok: true };
         }
 
-        case "postulia:send-email": {
-          const settings = await getSettings();
-          if (!settings.accessToken) {
-            return {
-              ok: false,
-              error: "Inicia sesión en tu servidor para enviar el correo.",
-            } as SendEmailResponse;
-          }
-
-          try {
-            const response = await fetch(`${BACKEND_URL.replace(/\/+$/, "")}/ia/send-email`, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${settings.accessToken}`,
-              },
-              body: JSON.stringify(request.post),
-            });
-
-            const data = await response.json().catch(() => null);
-
-            if (!response.ok) {
-              return {
-                ok: false,
-                error:
-                  data?.error?.message || data?.message || `Error ${response.status} del servidor`,
-              } as SendEmailResponse;
-            }
-
-            return {
-              ok: true,
-              message: data?.message || "Correo enviado correctamente.",
-            } as SendEmailResponse;
-          } catch (error) {
-            return {
-              ok: false,
-              error: error instanceof Error ? error.message : "No se pudo enviar el correo.",
-            } as SendEmailResponse;
-          }
-        }
-
         case "postulia:save-linkedin-post": {
+          if (request.post.url) {
+            const existing = await db.linkedinPosts.where("url").equals(request.post.url).first();
+            if (existing) return { ok: true, duplicate: true, id: existing.id };
+          }
+
           const record: LinkedInPostRecord = {
             id: crypto.randomUUID(),
             author: request.post.author,
@@ -260,7 +223,7 @@ export default defineBackground(() => {
             emailDraftId: null,
           };
           await db.linkedinPosts.put(record);
-          return { ok: true, id: record.id };
+          return { ok: true, duplicate: false, id: record.id };
         }
 
         case "postulia:open-sidepanel": {
