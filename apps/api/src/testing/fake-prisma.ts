@@ -107,6 +107,13 @@ export function createFakePrisma() {
         users.push(row);
         return clone(row);
       },
+      async update({ where, data }: Row) {
+        const row = users.find((user) => matches(user, where));
+        if (!row) throw new Error("user no encontrado en el cliente falso");
+        Object.assign(row, data);
+        row.updatedAt = new Date();
+        return clone(row);
+      },
     },
 
     refreshToken: {

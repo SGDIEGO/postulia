@@ -13,7 +13,9 @@ model User {
   email         String          @unique
   passwordHash  String          @map("password_hash")
   name          String?
-  createdAt     DateTime        @default(now()) @map("created_at")
+  iaProvider    String?   @map("ia_provider")
+  iaApiKey      String?   @map("ia_api_key")
+  createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime        @updatedAt @map("updated_at")
   applications  Application[]
   events        ApplicationEvent[]

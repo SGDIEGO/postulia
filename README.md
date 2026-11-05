@@ -68,6 +68,10 @@ npm run dev:ext            # recarga automática en .output/chrome-mv3-dev
 npm run build -w @postulia/extension
 ```
 
+El servidor de desarrollo de la extensión usa `http://localhost:3001`; la API
+usa `http://localhost:3000`. Mantener ambos puertos separados evita que Chrome
+envíe las solicitudes del servidor Vite a la API.
+
 1. Abre `chrome://extensions`.
 2. Activa **Modo de desarrollador**.
 3. **Cargar descomprimida** y elige `apps/extension/.output/chrome-mv3` (o `chrome-mv3-dev` en modo dev).

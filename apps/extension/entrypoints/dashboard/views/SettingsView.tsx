@@ -13,9 +13,10 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import { formatDateTimeEs } from "@postulia/shared";
 import { FaIcon } from "~/components/FaIcon";
-import { Button, Card, Field, Input, Spinner, cn } from "~/components/ui";
+import { Button, Card, Field, Input, Select, Spinner, cn } from "~/components/ui";
 import { login, logout, register, ensureApiPermission } from "~/lib/auth";
 import { pingServer } from "~/lib/api";
+import { apiRequest } from "~/lib/api";
 import { db, type LocalApplication } from "~/lib/db";
 import { useSettingsRow, useExtensionStatus } from "~/lib/hooks";
 import { sendMessage } from "~/lib/messaging";
@@ -101,10 +102,18 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
     setError(null);
     setInfo(null);
     try {
+      await apiRequest("/api/users/ia-config", {
+        method: "PUT",
+        body: {
+          provider: iaProvider || null,
+          apiKey: iaApiKey || null,
+        },
+      });
       await updateSettings({
         iaProvider: iaProvider || null,
-        iaApiKey: iaApiKey || null,
+        iaApiKey: null,
       });
+      setIaApiKey("");
       setInfo("Configuración de IA guardada.");
       onRefreshStatus();
     } catch (saveError) {
@@ -265,55 +274,22 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
     <div className="grid gap-4 lg:grid-cols-2">
       {settings.apiUrl ? (
         <>
-          <Card
-            title="Servidor"
-            actions={<FaIcon icon={faServer} size={16} className="text-slate-400" />}
-          >
-            <div className="space-y-3">
-              <Field
-                label="URL de la API de Postulia"
-                hint="Opcional. Sin servidor, todo se guarda en este navegador. Ejemplo: https://api.postulia.tudominio.com (sin barra final)"
-              >
-                <Input
-                  value={apiUrl}
-                  onChange={(event) => setApiUrl(event.target.value)}
-                  placeholder="https://api.tudominio.com"
-                />
-              </Field>
-
-              <div className="flex items-center gap-2">
-                <Button size="sm" onClick={() => void saveServer()} disabled={busy === "server"}>
-                  <FaIcon icon={faFloppyDisk} size={14} /> Guardar y probar
-                </Button>
-                <span className="text-xs text-slate-400">
-                  {status?.lastSyncAt
-                    ? `Última sincronización: ${formatDateTimeEs(status.lastSyncAt)}`
-                    : "Sin sincronizaciones"}
-                </span>
-              </div>
-
-              {settings.lastSyncError && (
-                <p className="rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">
-                  {settings.lastSyncError}
-                </p>
-              )}
-            </div>
-          </Card>
-
-          {settings.apiUrl ? (
+          {settings.apiUrl && settings.accessToken ? (
             <Card
               title="IA y correo"
               actions={<FaIcon icon={faRobot} size={16} className="text-slate-400" />}
             >
               <div className="space-y-3">
                 <Field label="Proveedor de IA">
-                  <Input
+                  <Select
                     value={iaProvider}
                     onChange={(event) => setIaProvider(event.target.value)}
-                    placeholder="gemini"
-                  />
+                  >
+                    <option value="">Selecciona un proveedor</option>
+                    <option value="gemini">Gemini</option>
+                  </Select>
                   <p className="mt-1 text-[11px] text-slate-400">
-                    Por ahora usa "gemini". La API key se guarda solo en este navegador.
+                    Por ahora usa "gemini". La API key se cifra y se guarda en tu servidor.
                   </p>
                 </Field>
 
@@ -325,7 +301,7 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
                     placeholder="sk-... (si no está configurada en el servidor)"
                   />
                   <p className="mt-1 text-[11px] text-slate-400">
-                    Si tu servidor ya tiene la API key de Gemini, déjalo vacío.
+                    Se usa para generar borradores con Gemini y no se muestra de nuevo.
                   </p>
                 </Field>
 

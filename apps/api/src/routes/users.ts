@@ -5,6 +5,7 @@ import nodemailer from "nodemailer";
 import { PDFParse } from "pdf-parse";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { decryptUserSecret, encryptUserSecret } from "../lib/user-secrets.js";
 
 const draftEmailSchema = z.object({
   /** Correo destinatario indicado por el usuario en el panel. */
@@ -14,6 +15,21 @@ const draftEmailSchema = z.object({
   url: z.string().nullish(),
   postedAt: z.string().nullish(),
 });
+
+const iaConfigSchema = z
+  .object({
+    provider: z.literal("gemini").nullable(),
+    apiKey: z.string().trim().max(500).nullable(),
+  })
+  .superRefine((value, context) => {
+    if (value.apiKey && !value.provider) {
+      context.addIssue({
+        code: "custom",
+        path: ["provider"],
+        message: "El proveedor es obligatorio cuando se configura una API key",
+      });
+    }
+  });
 
 const sendReviewedEmailSchema = z.object({
   to: z.string().trim().email("El correo destinatario no es válido"),
@@ -179,6 +195,27 @@ export default async function userRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
+  app.put("/api/users/ia-config", async (request) => {
+    const parsed = iaConfigSchema.safeParse(request.body);
+    if (!parsed.success) throw badRequest("Datos inválidos", parsed.error.issues);
+
+    const { provider, apiKey } = parsed.data;
+    const userId = request.user.sub;
+    await app.prisma.user.update({
+      where: { id: userId },
+      data: {
+        iaProvider: provider,
+        iaApiKey: provider
+          ? apiKey
+            ? encryptUserSecret(apiKey, app.env.JWT_SECRET)
+            : undefined
+          : null,
+      },
+    });
+
+    return { provider, configured: Boolean(apiKey) };
+  });
+
   /**
    * Genera un borrador con Gemini y NO envía nada. El usuario revisa y
    * corrige el destinatario, el asunto y el cuerpo antes de enviarlo.
@@ -196,9 +233,18 @@ export default async function userRoutes(app: FastifyInstance): Promise<void> {
       throw badRequest("No se encontró un CV subido. Sube tu CV en Ajustes primero.");
     }
 
-    const apiKey = app.env.GEMINI_API_KEY;
+    const user = await app.prisma.user.findUnique({ where: { id: userId } });
+    let apiKey = app.env.GEMINI_API_KEY;
+    if (user?.iaApiKey) {
+      try {
+        apiKey = decryptUserSecret(user.iaApiKey, app.env.JWT_SECRET);
+      } catch {
+        request.log.error({ userId }, "No se pudo descifrar la API key de IA del usuario");
+        throw badRequest("La API key de IA guardada no se puede utilizar. Vuelve a registrarla.");
+      }
+    }
     if (!apiKey) {
-      throw badRequest("El servidor no tiene configurada la API key de Gemini.");
+      throw badRequest("Configura tu API key de Gemini en Ajustes.");
     }
 
     const prompt = `Eres un asistente experto en búsqueda de empleo. Analiza la siguiente información.
@@ -265,8 +311,7 @@ Devuelve ÚNICAMENTE un objeto JSON con este formato exacto:
     return {
       ok: true,
       to: normalizeRecipient(to) ?? normalizeRecipient(generated.to),
-      subject:
-        generated.subject?.trim() || `Postulación - ${author ?? "oportunidad en LinkedIn"}`,
+      subject: generated.subject?.trim() || `Postulación - ${author ?? "oportunidad en LinkedIn"}`,
       body: generated.body?.trim() || DEFAULT_BODY,
     };
   });

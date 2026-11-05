@@ -5,6 +5,12 @@ export default defineConfig({
   modules: ["@wxt-dev/module-react"],
   imports: false,
   srcDir: ".",
+  dev: {
+    server: {
+      port: 3001,
+      strictPort: true,
+    },
+  },
   manifest: {
     name: "Postulia — Seguimiento de postulaciones",
     short_name: "Postulia",

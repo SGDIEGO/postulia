@@ -25,7 +25,7 @@ const envSchema = z.object({
   RATE_LIMIT_WINDOW: z.string().default("1 minute"),
   ALLOW_REGISTRATION: booleanFromString(true),
   GEMINI_API_KEY: z.string().optional(),
-  GEMINI_MODEL: z.string().default("gemini-2.5-flash"),
+  GEMINI_MODEL: z.string().default("gemini-3.8-flash"),
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(587),
   SMTP_SECURE: z.string().default("false"),

@@ -25,7 +25,7 @@ export interface PostuliaSettings {
   followUpDays: number;
   /** Proveedor de IA configurado (por ahora "gemini"). */
   iaProvider: string | null;
-  /** API key de IA. Se guarda localmente; si no hay, se pide al usar la función. */
+  /** Copia local temporal para mostrar el estado del formulario; la fuente es el servidor. */
   iaApiKey: string | null;
   /** Texto extraído del CV (PDF subido una vez por el usuario). */
   cvText: string | null;

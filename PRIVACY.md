@@ -3,14 +3,13 @@
 **Última actualización:** 26 de octubre de 2026
 **Versión de la extensión:** 0.1.0
 
-Postulia es una extensión de Chrome para registrar y dar seguimiento a postulaciones laborales. Funciona **sin cuenta y de forma local**: tus datos se guardan en el navegador y no se envían a ningún servidor.
+Postulia es una extensión de Chrome para registrar y dar seguimiento a postulaciones laborales. Puede funcionar localmente o conectarse a una API que tú configures.
 
 ## Resumen
 
 - **No hay telemetría, analítica, publicidad ni venta de datos.**
-- **No hay servidores de Postulia.** El proyecto no opera un servicio hospedado.
-- **Ningún dato sale de tu equipo.**
-- Todo se guarda en tu navegador y puedes exportarlo o borrarlo cuando quieras.
+- Si configuras una API, los datos necesarios para sincronizar se envían a ese servidor.
+- Puedes exportar o borrar los datos locales desde la extensión.
 
 ## Qué datos trata la extensión
 
@@ -29,7 +28,9 @@ Postulia es una extensión de Chrome para registrar y dar seguimiento a postulac
 
 ### Datos de configuración
 
-Los datos de configuración se limitan a las preferencias locales de la interfaz (por ejemplo, si la barra lateral está contraída). No hay cuentas, correo ni tokens de sesión.
+La extensión puede guardar la URL de la API, tokens de sesión y la configuración del proveedor de IA. La API key de Gemini se envía al servidor por una conexión segura, se almacena cifrada y no se devuelve en las respuestas.
+
+Cuando generas un borrador, el servidor envía a Google Gemini el contenido del post y el texto de tu CV junto con tu solicitud. Revisa los términos y la política de privacidad del plan de Google Gemini que uses.
 
 La extensión **no** recopila identificadores de usuario, datos de salud, datos financieros, ubicación precisa del dispositivo ni historial de navegación general.
 
@@ -37,7 +38,7 @@ La extensión **no** recopila identificadores de usuario, datos de salud, datos 
 
 ### Almacenamiento local
 
-Todo se guarda en **IndexedDB** dentro de tu perfil de Chrome, más algunas preferencias en `chrome.storage`. Estos datos:
+Los datos locales se guardan en **IndexedDB** dentro de tu perfil de Chrome, más algunas preferencias en `chrome.storage`. Estos datos:
 
 - Permanecen en tu equipo.
 - No se transmiten a Postulia ni a terceros.
@@ -60,7 +61,7 @@ Todo se guarda en **IndexedDB** dentro de tu perfil de Chrome, más algunas pref
 ## Terceros
 
 - **No** se usan servicios de analítica, publicidad, rastreo ni redes sociales.
-- **No** se venden ni se comparten datos con terceros.
+- Postulia no vende datos. Si usas la función de IA, el servidor configurado comparte el CV y el contenido del post con Google Gemini para generar el borrador.
 - Al abrir o buscar en un portal de empleo, la petición la hace tu navegador directamente contra ese portal; el portal puede registrar la visita según sus propias políticas.
 - Postulia no está afiliada a LinkedIn, Indeed, Computrabajo, Bumeran, Get on Board ni Torre.
 
@@ -73,7 +74,7 @@ Todo se guarda en **IndexedDB** dentro de tu perfil de Chrome, más algunas pref
 ## Seguridad
 
 - La extensión no ejecuta código remoto ni carga scripts de terceros.
-- No hay cuentas, tokens de sesión ni conexiones a servidores propios.
+- La API usa autenticación y cifra la API key de IA almacenada en el servidor.
 - Las peticiones a portales de empleo las hace tu navegador directamente contra ese portal.
 
 ## Menores de edad
