@@ -26,6 +26,12 @@ import { exportCsv, exportJson, importCsv, importJson, downloadFile } from "~/li
 import { useLiveQuery } from "dexie-react-hooks";
 import { deleteReminder } from "~/lib/repository";
 
+interface GeminiModelOption {
+  id: string;
+  displayName: string;
+  description: string;
+}
+
 export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void }) {
   const settings = useSettingsRow();
   const { status, syncNow: syncFromStatus, syncing } = useExtensionStatus();
@@ -33,6 +39,12 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
   const [apiUrl, setApiUrl] = useState("");
   const [iaProvider, setIaProvider] = useState("");
   const [iaApiKey, setIaApiKey] = useState("");
+  const [iaModel, setIaModel] = useState("");
+  const [iaModels, setIaModels] = useState<GeminiModelOption[]>([]);
+  const [iaDefaultModel, setIaDefaultModel] = useState("");
+  const [iaConfigured, setIaConfigured] = useState(false);
+  const [iaModelsBusy, setIaModelsBusy] = useState(false);
+  const [iaModelsError, setIaModelsError] = useState<string | null>(null);
   const [cvFile, setCvFile] = useState<File | null>(null);
   const [mode, setMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
@@ -53,7 +65,62 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
     setApiUrl(settings.apiUrl);
     setIaProvider(settings.iaProvider ?? "");
     setIaApiKey(settings.iaApiKey ?? "");
+    setIaModel(settings.iaModel ?? "");
   }, [settings]);
+
+  const accessToken = settings?.accessToken ?? null;
+
+  useEffect(() => {
+    if (!accessToken) return;
+    void loadIAConfig();
+    void loadIAModels();
+  }, [accessToken]);
+
+  async function loadIAConfig() {
+    try {
+      const data = await apiRequest<{
+        provider: string | null;
+        model: string | null;
+        configured: boolean;
+      }>("/api/users/ia-config");
+
+      setIaProvider(data.provider ?? "");
+      setIaModel(data.model ?? "");
+      setIaConfigured(data.configured);
+      await updateSettings({ iaProvider: data.provider, iaModel: data.model });
+    } catch (loadError) {
+      setIaModelsError(
+        loadError instanceof Error
+          ? loadError.message
+          : "No se pudo cargar la configuración de IA.",
+      );
+    }
+  }
+
+  async function loadIAModels() {
+    setIaModelsBusy(true);
+    setIaModelsError(null);
+    try {
+      const data = await apiRequest<{
+        models: GeminiModelOption[];
+        defaultModel: string;
+        configured: boolean;
+      }>("/api/users/ia-models");
+
+      setIaModels(data.models ?? []);
+      setIaDefaultModel(data.defaultModel ?? "");
+      setIaConfigured(data.configured);
+    } catch (loadError) {
+      setIaModels([]);
+      setIaModelsError(
+        loadError instanceof Error
+          ? loadError.message
+          : "No se pudieron cargar los modelos de Gemini.",
+      );
+    } finally {
+      setIaModelsBusy(false);
+    }
+  }
 
   /** Reprograma las alarmas tras cambiar la sesión o la sincronización. */
   function rescheduleAlarms(): void {
@@ -102,19 +169,32 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
     setError(null);
     setInfo(null);
     try {
-      await apiRequest("/api/users/ia-config", {
+      const saved = await apiRequest<{
+        provider: string | null;
+        model: string | null;
+        configured: boolean;
+      }>("/api/users/ia-config", {
         method: "PUT",
         body: {
           provider: iaProvider || null,
           apiKey: iaApiKey || null,
+          model: iaProvider ? iaModel || null : null,
         },
       });
+
       await updateSettings({
-        iaProvider: iaProvider || null,
+        iaProvider: saved.provider,
+        iaModel: saved.model,
         iaApiKey: null,
       });
       setIaApiKey("");
-      setInfo("Configuración de IA guardada.");
+      setIaConfigured(saved.configured);
+      setInfo(
+        saved.configured
+          ? "Configuración de IA guardada."
+          : "Proveedor guardado. Añade tu API key para generar correos.",
+      );
+      await loadIAModels();
       onRefreshStatus();
     } catch (saveError) {
       setError(
@@ -293,17 +373,76 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
                   </p>
                 </Field>
 
-                <Field label="API key de IA (opcional)">
+                <Field label="API key de IA">
                   <Input
                     type="password"
                     value={iaApiKey}
                     onChange={(event) => setIaApiKey(event.target.value)}
-                    placeholder="sk-... (si no está configurada en el servidor)"
+                    placeholder="Pega aquí tu API key de Gemini"
+                    autoComplete="off"
                   />
                   <p className="mt-1 text-[11px] text-slate-400">
-                    Se usa para generar borradores con Gemini y no se muestra de nuevo.
+                    Cada usuario usa su propia API key. Se cifra en el servidor y no se vuelve a
+                    mostrar.
                   </p>
                 </Field>
+
+                <div>
+                  <span className="mb-1 block text-xs font-medium text-slate-500">
+                    Modelo de Gemini
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <Select
+                      value={iaModel}
+                      onChange={(event) => setIaModel(event.target.value)}
+                      disabled={!iaConfigured || iaModelsBusy}
+                    >
+                      <option value="">
+                        {iaDefaultModel
+                          ? `Modelo por defecto (${iaDefaultModel})`
+                          : "Modelo por defecto del servidor"}
+                      </option>
+                      {iaModels.map((model) => (
+                        <option key={model.id} value={model.id}>
+                          {model.displayName} · {model.id}
+                        </option>
+                      ))}
+                      {iaModel && !iaModels.some((model) => model.id === iaModel) ? (
+                        <option value={iaModel}>{iaModel} (guardado)</option>
+                      ) : null}
+                    </Select>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => void loadIAModels()}
+                      disabled={iaModelsBusy || !iaConfigured}
+                    >
+                      <FaIcon icon={faArrowsRotate} size={13} />
+                      {iaModelsBusy ? "Cargando…" : "Recargar"}
+                    </Button>
+                  </div>
+                  <p className="mt-1 text-[11px] text-slate-400">
+                    La lista se obtiene con tu API key y solo muestra modelos que generan texto.
+                  </p>
+                </div>
+
+                {iaModelsError ? (
+                  <p className="rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">
+                    {iaModelsError}
+                  </p>
+                ) : null}
+
+                <p
+                  className={cn(
+                    "rounded-lg px-3 py-2 text-xs",
+                    iaConfigured ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700",
+                  )}
+                >
+                  {iaConfigured
+                    ? "API key configurada. Los correos se generan con tu propia cuota de Gemini."
+                    : "Aún no hay API key guardada. Sin ella no se pueden generar borradores."}
+                </p>
 
                 <div className="flex items-center gap-2">
                   <Button size="sm" onClick={() => void saveIAConfig()} disabled={busy === "ia"}>

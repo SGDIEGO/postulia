@@ -29,5 +29,8 @@ export const conflict = (message: string, details?: unknown) =>
 export const tooManyRequests = (message = "Demasiadas peticiones") =>
   new HttpError(429, "rate_limited", message);
 
+export const badGateway = (message = "El servicio externo no respondió correctamente") =>
+  new HttpError(502, "bad_gateway", message);
+
 export const serviceUnavailable = (message = "Servicio no disponible") =>
   new HttpError(503, "service_unavailable", message);

@@ -84,7 +84,7 @@ envíe las solicitudes del servidor Vite a la API.
 ### Tests y verificación
 
 ```bash
-npm test                   # shared (20) + API (7) + extensión (111)
+npm test                   # shared + API + extensión
 npm run typecheck
 npm run build              # shared + API + extensión
 ```

@@ -27,6 +27,8 @@ export interface PostuliaSettings {
   iaProvider: string | null;
   /** Copia local temporal para mostrar el estado del formulario; la fuente es el servidor. */
   iaApiKey: string | null;
+  /** Modelo de Gemini elegido por el usuario; null = modelo por defecto del servidor. */
+  iaModel: string | null;
   /** Texto extraído del CV (PDF subido una vez por el usuario). */
   cvText: string | null;
   /** Nombre original del archivo CV. */
@@ -49,6 +51,7 @@ export const DEFAULT_SETTINGS: PostuliaSettings = {
   followUpDays: 7,
   iaProvider: null,
   iaApiKey: null,
+  iaModel: null,
   cvText: null,
   cvFileName: null,
   cvUploadedAt: null,

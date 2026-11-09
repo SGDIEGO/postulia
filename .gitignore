@@ -38,3 +38,4 @@ apps/extension/public/icon/*.png
 
 # CVs subidos al backend local
 apps/api/.uploads/
+/.uploads/

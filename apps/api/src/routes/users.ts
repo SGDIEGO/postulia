@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { badRequest, notFound, unauthorized } from "../lib/errors.js";
+import { badGateway, badRequest, notFound, unauthorized } from "../lib/errors.js";
 import nodemailer from "nodemailer";
 import { PDFParse } from "pdf-parse";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
@@ -20,6 +20,7 @@ const iaConfigSchema = z
   .object({
     provider: z.literal("gemini").nullable(),
     apiKey: z.string().trim().max(500).nullable(),
+    model: z.string().trim().max(120).nullable().optional(),
   })
   .superRefine((value, context) => {
     if (value.apiKey && !value.provider) {
@@ -49,6 +50,79 @@ interface GeneratedEmail {
   to?: string | null;
   subject?: string | null;
   body?: string | null;
+}
+
+interface GeminiModel {
+  name?: string;
+  displayName?: string;
+  description?: string;
+  supportedGenerationMethods?: string[];
+}
+
+interface GeminiModelsPage {
+  models?: GeminiModel[];
+  nextPageToken?: string;
+}
+
+export interface GeminiModelOption {
+  id: string;
+  displayName: string;
+  description: string;
+}
+
+const GEMINI_MODELS_URL = "https://generativelanguage.googleapis.com/v1beta/models";
+const GEMINI_MODELS_PAGE_SIZE = 1000;
+const GEMINI_MODELS_MAX_PAGES = 5;
+
+/** Gemini devuelve "models/gemini-..."; guardamos solo el identificador. */
+function normalizeModelId(value: string | null | undefined): string | null {
+  const trimmed = value?.trim().replace(/^models\//, "");
+  return trimmed || null;
+}
+
+/** Lista los modelos que la API key del usuario puede usar para generar texto. */
+async function listGeminiModels(apiKey: string): Promise<GeminiModelOption[]> {
+  const byId = new Map<string, GeminiModelOption>();
+  let pageToken: string | undefined;
+
+  for (let page = 0; page < GEMINI_MODELS_MAX_PAGES; page += 1) {
+    const url = new URL(GEMINI_MODELS_URL);
+    url.searchParams.set("pageSize", String(GEMINI_MODELS_PAGE_SIZE));
+    if (pageToken) url.searchParams.set("pageToken", pageToken);
+
+    const response = await fetch(url, {
+      headers: {
+        Accept: "application/json",
+        "X-goog-api-key": apiKey,
+      },
+    });
+
+    if (!response.ok) {
+      await response.text().catch(() => "");
+      throw badGateway(
+        `No se pudieron listar los modelos de Gemini (${response.status}). Revisa tu API key.`,
+      );
+    }
+
+    const data = (await response.json()) as GeminiModelsPage;
+    for (const model of data.models ?? []) {
+      if (!model.supportedGenerationMethods?.includes("generateContent")) continue;
+      const id = normalizeModelId(model.name);
+      if (!id) continue;
+      byId.set(id, {
+        id,
+        displayName: model.displayName?.trim() || id,
+        description: model.description?.trim() || "",
+      });
+    }
+
+    if (!data.nextPageToken) break;
+    pageToken = data.nextPageToken;
+  }
+
+  return [...byId.values()].sort((left, right) =>
+    left.displayName.localeCompare(right.displayName),
+  );
 }
 
 const uploadsDir = path.join(process.cwd(), ".uploads");
@@ -195,12 +269,61 @@ export default async function userRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
+  app.get("/api/users/ia-config", async (request) => {
+    const user = await app.prisma.user.findUnique({ where: { id: request.user.sub } });
+    if (!user) throw unauthorized("Usuario no encontrado");
+
+    return {
+      provider: user.iaProvider ?? null,
+      model: user.iaModel ?? null,
+      configured: Boolean(user.iaApiKey),
+    };
+  });
+
+  /** Lista los modelos disponibles para la API key del usuario autenticado. */
+  app.get("/api/users/ia-models", async (request) => {
+    const user = await app.prisma.user.findUnique({ where: { id: request.user.sub } });
+    if (!user) throw unauthorized("Usuario no encontrado");
+
+    if (!user.iaApiKey) {
+      return {
+        models: [] as GeminiModelOption[],
+        defaultModel: app.env.GEMINI_MODEL,
+        configured: false,
+      };
+    }
+
+    let apiKey: string;
+    try {
+      apiKey = decryptUserSecret(user.iaApiKey, app.env.JWT_SECRET);
+    } catch {
+      request.log.error({ userId: user.id }, "No se pudo descifrar la API key de IA del usuario");
+      throw badRequest("La API key de IA guardada no se puede utilizar. Vuelve a registrarla.");
+    }
+
+    const models = await listGeminiModels(apiKey);
+    return {
+      models,
+      defaultModel: app.env.GEMINI_MODEL,
+      configured: true,
+    };
+  });
+
   app.put("/api/users/ia-config", async (request) => {
     const parsed = iaConfigSchema.safeParse(request.body);
     if (!parsed.success) throw badRequest("Datos inválidos", parsed.error.issues);
 
-    const { provider, apiKey } = parsed.data;
+    const { provider, apiKey, model } = parsed.data;
     const userId = request.user.sub;
+    const user = await app.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw unauthorized("Usuario no encontrado");
+
+    const nextModel = provider
+      ? model === undefined
+        ? user.iaModel
+        : normalizeModelId(model)
+      : null;
+
     await app.prisma.user.update({
       where: { id: userId },
       data: {
@@ -210,10 +333,15 @@ export default async function userRoutes(app: FastifyInstance): Promise<void> {
             ? encryptUserSecret(apiKey, app.env.JWT_SECRET)
             : undefined
           : null,
+        iaModel: nextModel,
       },
     });
 
-    return { provider, configured: Boolean(apiKey) };
+    return {
+      provider,
+      model: nextModel ?? null,
+      configured: provider ? Boolean(apiKey || user.iaApiKey) : false,
+    };
   });
 
   /**
@@ -234,18 +362,21 @@ export default async function userRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const user = await app.prisma.user.findUnique({ where: { id: userId } });
-    let apiKey = app.env.GEMINI_API_KEY;
-    if (user?.iaApiKey) {
-      try {
-        apiKey = decryptUserSecret(user.iaApiKey, app.env.JWT_SECRET);
-      } catch {
-        request.log.error({ userId }, "No se pudo descifrar la API key de IA del usuario");
-        throw badRequest("La API key de IA guardada no se puede utilizar. Vuelve a registrarla.");
-      }
-    }
-    if (!apiKey) {
+    if (!user) throw unauthorized("Usuario no encontrado");
+
+    if (!user.iaApiKey) {
       throw badRequest("Configura tu API key de Gemini en Ajustes.");
     }
+
+    let apiKey: string;
+    try {
+      apiKey = decryptUserSecret(user.iaApiKey, app.env.JWT_SECRET);
+    } catch {
+      request.log.error({ userId }, "No se pudo descifrar la API key de IA del usuario");
+      throw badRequest("La API key de IA guardada no se puede utilizar. Vuelve a registrarla.");
+    }
+
+    const model = normalizeModelId(user.iaModel) ?? app.env.GEMINI_MODEL;
 
     const prompt = `Eres un asistente experto en búsqueda de empleo. Analiza la siguiente información.
 
@@ -273,7 +404,6 @@ Tareas:
 Devuelve ÚNICAMENTE un objeto JSON con este formato exacto:
 {"to": "correo@dominio.com" o null, "subject": "asunto del correo", "body": "cuerpo del correo en texto plano"}`;
 
-    const model = app.env.GEMINI_MODEL;
     const geminiRes = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
       {

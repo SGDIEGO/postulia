@@ -362,10 +362,15 @@ Le pide a Gemini que:
 La llamada se hace a:
 
 ```text
-https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent
+https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent
 ```
 
-La API key se obtiene de `GEMINI_API_KEY` en el entorno del backend.
+La API key es siempre la que el usuario guardó en Ajustes. No existe una clave
+global de respaldo: si falta, el backend responde con un error claro.
+
+La clave del usuario se guarda cifrada en PostgreSQL y nunca se devuelve al
+cliente. El modelo se toma de `User.iaModel`; si el usuario no eligió ninguno se
+usa `GEMINI_MODEL` (por defecto `gemini-3.8-flash`).
 
 ### Paso 9: se determina el destinatario del borrador
 
@@ -559,6 +564,8 @@ La API está en [`apps/api/`](../apps/api/). Usa Fastify, Prisma y PostgreSQL.
 - [`src/lib/password.ts`](../apps/api/src/lib/password.ts): hash y
   verificación de contraseñas.
 - [`src/lib/tokens.ts`](../apps/api/src/lib/tokens.ts): refresh tokens.
+- [`src/lib/user-secrets.ts`](../apps/api/src/lib/user-secrets.ts): cifrado
+  AES-256-GCM de la API key de IA por usuario.
 - [`src/routes/auth.ts`](../apps/api/src/routes/auth.ts): registro, login,
   refresh, logout y usuario actual.
 - [`src/routes/applications.ts`](../apps/api/src/routes/applications.ts):
@@ -569,7 +576,8 @@ La API está en [`apps/api/`](../apps/api/). Usa Fastify, Prisma y PostgreSQL.
   recordatorios.
 - [`src/routes/stats.ts`](../apps/api/src/routes/stats.ts): estadísticas.
 - [`src/routes/tags.ts`](../apps/api/src/routes/tags.ts): etiquetas.
-- [`src/routes/users.ts`](../apps/api/src/routes/users.ts): CV y correo con IA.
+- [`src/routes/users.ts`](../apps/api/src/routes/users.ts): CV,
+  configuración de IA por usuario y correo con IA.
 
 ### Base de datos
 
@@ -610,11 +618,11 @@ consumen su salida `dist`.
 
 ## 7. Configuración de IA y correo
 
-La ruta de IA necesita estas variables en `apps/api/.env`:
+La IA usa la API key de Gemini de cada usuario. En `apps/api/.env` solo queda
+el modelo por defecto del servidor:
 
 ```env
-GEMINI_API_KEY=...
-GEMINI_MODEL=gemini-2.5-flash
+GEMINI_MODEL=gemini-3.8-flash
 SMTP_HOST=...
 SMTP_PORT=587
 SMTP_SECURE=false
@@ -622,6 +630,34 @@ SMTP_USER=...
 SMTP_PASS=...
 SMTP_FROM=...
 ```
+
+Cada usuario guarda su propia API key de Gemini desde **Ajustes → IA y
+correo**. La extensión la envía a:
+
+```text
+PUT /api/users/ia-config
+```
+
+El backend la cifra con AES-256-GCM usando `JWT_SECRET` como secreto maestro y
+la almacena en las columnas `ia_provider`, `ia_api_key` e `ia_model`. Nunca se
+devuelve al cliente.
+
+La lista de modelos se obtiene con la key de ese usuario:
+
+```text
+GET /api/users/ia-models
+```
+
+El backend consulta `GET /v1beta/models` de Gemini con `X-goog-api-key`, filtra
+los modelos que incluyen `generateContent` y devuelve `{ models, defaultModel,
+configured }`. Si el usuario aún no tiene key, devuelve una lista vacía con
+`configured: false`.
+
+También existe `GET /api/users/ia-config`, que devuelve `{ provider, model,
+configured }` sin exponer la clave.
+
+No hay respaldo a una `GEMINI_API_KEY` global: sin key del usuario, la
+generación falla con un mensaje que pide configurarla en Ajustes.
 
 También necesita la configuración general:
 
@@ -636,7 +672,7 @@ La extensión necesita:
 1. Tener configurada la URL de la API.
 2. Tener una sesión iniciada.
 3. Tener un CV PDF cargado en Ajustes.
-4. Que la API tenga Gemini configurado.
+4. Tener una API key de Gemini guardada en Ajustes → IA y correo.
 5. Que la API tenga SMTP configurado.
 6. Que el post contenga un correo o que se introduzca manualmente.
 
@@ -671,8 +707,8 @@ Revisar en este orden:
 3. El servidor responde en `POST /api/ia/draft-email`.
 4. El token JWT no está vencido.
 5. Existe un CV en `UserCv` con texto extraído.
-6. `GEMINI_API_KEY` está configurada.
-7. `GEMINI_MODEL` es válido.
+6. Una API key de Gemini propia configurada en Ajustes → IA y correo.
+7. El modelo elegido existe para esa API key.
 
 ### El correo no se envía
 

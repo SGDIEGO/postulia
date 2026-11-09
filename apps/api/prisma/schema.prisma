@@ -15,6 +15,7 @@ model User {
   name          String?
   iaProvider    String?   @map("ia_provider")
   iaApiKey      String?   @map("ia_api_key")
+  iaModel       String?   @map("ia_model")
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime        @updatedAt @map("updated_at")
   applications  Application[]

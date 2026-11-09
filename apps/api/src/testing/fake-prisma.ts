@@ -74,6 +74,7 @@ export function createFakePrisma() {
   const reminders: Row[] = [];
   const tags: Row[] = [];
   const applicationTags: Row[] = [];
+  const userCvs: Row[] = [];
 
   let counter = 0;
   const nextId = () => `00000000-0000-4000-8000-${String(++counter).padStart(12, "0")}`;
@@ -112,6 +113,28 @@ export function createFakePrisma() {
         if (!row) throw new Error("user no encontrado en el cliente falso");
         Object.assign(row, data);
         row.updatedAt = new Date();
+        return clone(row);
+      },
+    },
+
+    userCv: {
+      async findFirst({ where }: Row) {
+        return clone(userCvs.find((cv) => matches(cv, where))) ?? null;
+      },
+      async create({ data }: Row) {
+        const row = {
+          id: nextId(),
+          text: null,
+          uploadedAt: new Date(),
+          ...data,
+        };
+        userCvs.push(row);
+        return clone(row);
+      },
+      async update({ where, data }: Row) {
+        const row = userCvs.find((cv) => matches(cv, where));
+        if (!row) throw new Error("CV no encontrado en el cliente falso");
+        Object.assign(row, data);
         return clone(row);
       },
     },

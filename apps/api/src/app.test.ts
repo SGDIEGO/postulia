@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PrismaClient } from "@prisma/client";
 import type { ApplicationSync, AuthSession, SyncPushResult } from "@postulia/shared";
 import { buildApp } from "./app.js";
@@ -22,7 +22,6 @@ const testEnv: Env = {
   SMTP_USER: "test@test.local",
   SMTP_PASS: "test-pass",
   SMTP_FROM: "Test <test@test.local>",
-  GEMINI_API_KEY: "test-gemini-key",
   GEMINI_MODEL: "gemini-2.5-flash",
 };
 
@@ -320,6 +319,273 @@ describe("sincronización", () => {
       },
     });
     expect(stale.json<SyncPushResult>().conflicts.applications).toHaveLength(1);
+
+    await app.close();
+  });
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+describe("correo con IA", () => {
+  const userApiKey = "clave-gemini-del-usuario";
+
+  async function setupWithUser(email = "ia@example.com") {
+    const prisma = createFakePrisma();
+    const app = await buildApp({
+      env: testEnv,
+      prisma: prisma as unknown as PrismaClient,
+      logger: false,
+    });
+    await app.ready();
+    const session = await register(app, email);
+
+    await prisma.userCv.create({
+      data: {
+        userId: session.user.id,
+        fileName: "cv.pdf",
+        filePath: "/tmp/cv.pdf",
+        text: "Experiencia en TypeScript, React y PostgreSQL.",
+      },
+    });
+
+    return { app, prisma, session };
+  }
+
+  it("guarda la API key de IA cifrada y no la devuelve", async () => {
+    const { app, prisma, session } = await setupWithUser();
+
+    const response = await app.inject({
+      method: "PUT",
+      url: "/api/users/ia-config",
+      headers: { authorization: `Bearer ${session.accessToken}` },
+      payload: { provider: "gemini", apiKey: userApiKey },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ provider: "gemini", model: null, configured: true });
+
+    const stored = await prisma.user.findUnique({ where: { id: session.user.id } });
+    expect(stored?.iaProvider).toBe("gemini");
+    expect(stored?.iaApiKey).toBeTruthy();
+    expect(stored?.iaApiKey).not.toContain(userApiKey);
+
+    await app.close();
+  });
+
+  it("guarda el modelo del usuario sin el prefijo models/ y lo devuelve en ia-config", async () => {
+    const { app, session } = await setupWithUser();
+
+    const response = await app.inject({
+      method: "PUT",
+      url: "/api/users/ia-config",
+      headers: { authorization: `Bearer ${session.accessToken}` },
+      payload: { provider: "gemini", apiKey: userApiKey, model: "models/gemini-2.5-pro" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      provider: "gemini",
+      model: "gemini-2.5-pro",
+      configured: true,
+    });
+
+    const config = await app.inject({
+      method: "GET",
+      url: "/api/users/ia-config",
+      headers: { authorization: `Bearer ${session.accessToken}` },
+    });
+
+    expect(config.statusCode).toBe(200);
+    expect(config.json()).toEqual({
+      provider: "gemini",
+      model: "gemini-2.5-pro",
+      configured: true,
+    });
+    expect(JSON.stringify(config.json())).not.toContain(userApiKey);
+
+    await app.close();
+  });
+
+  it("lista los modelos de Gemini con la API key del usuario y filtra generateContent", async () => {
+    const { app, session } = await setupWithUser();
+
+    await app.inject({
+      method: "PUT",
+      url: "/api/users/ia-config",
+      headers: { authorization: `Bearer ${session.accessToken}` },
+      payload: { provider: "gemini", apiKey: userApiKey },
+    });
+
+    const fetchMock = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          models: [
+            {
+              name: "models/gemini-2.5-pro",
+              displayName: "Gemini 2.5 Pro",
+              description: "Modelo Pro",
+              supportedGenerationMethods: ["generateContent", "countTokens"],
+            },
+            {
+              name: "models/text-embedding-004",
+              displayName: "Embedding",
+              description: "No genera texto",
+              supportedGenerationMethods: ["embedContent"],
+            },
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/users/ia-models",
+      headers: { authorization: `Bearer ${session.accessToken}` },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      models: [
+        {
+          id: "gemini-2.5-pro",
+          displayName: "Gemini 2.5 Pro",
+          description: "Modelo Pro",
+        },
+      ],
+      defaultModel: "gemini-2.5-flash",
+      configured: true,
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(String(url)).toContain("/v1beta/models");
+    expect(init.headers).toMatchObject({ "X-goog-api-key": userApiKey });
+
+    await app.close();
+  });
+
+  it("devuelve una lista vacía de modelos si el usuario no tiene API key", async () => {
+    const { app, session } = await setupWithUser();
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/users/ia-models",
+      headers: { authorization: `Bearer ${session.accessToken}` },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      models: [],
+      defaultModel: "gemini-2.5-flash",
+      configured: false,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it("falla sin API key del usuario en lugar de usar una clave del servidor", async () => {
+    const { app, session } = await setupWithUser();
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/ia/draft-email",
+      headers: { authorization: `Bearer ${session.accessToken}` },
+      payload: { text: "Buscamos desarrollador. Escribe a rrhh@acme.test" },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json().message).toContain("API key");
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it("genera un borrador con la API key del usuario y no envía correo", async () => {
+    const { app, session } = await setupWithUser();
+
+    const config = await app.inject({
+      method: "PUT",
+      url: "/api/users/ia-config",
+      headers: { authorization: `Bearer ${session.accessToken}` },
+      payload: { provider: "gemini", apiKey: userApiKey, model: "gemini-2.5-pro" },
+    });
+    expect(config.statusCode).toBe(200);
+
+    const fetchMock = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          candidates: [
+            {
+              content: {
+                parts: [
+                  {
+                    text: JSON.stringify({
+                      to: "rrhh@acme.test",
+                      subject: "Postulación junior",
+                      body: "Hola, me interesa la oportunidad.",
+                    }),
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/ia/draft-email",
+      headers: { authorization: `Bearer ${session.accessToken}` },
+      payload: {
+        text: "Buscamos desarrollador junior. Escribe a rrhh@acme.test",
+        to: null,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      ok: true,
+      to: "rrhh@acme.test",
+      subject: "Postulación junior",
+      body: "Hola, me interesa la oportunidad.",
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toContain("generativelanguage.googleapis.com");
+    expect(url).toContain("/models/gemini-2.5-pro:generateContent");
+    expect(init.headers).toMatchObject({ "X-goog-api-key": userApiKey });
+    expect(String(init.body)).toContain("Experiencia en TypeScript");
+
+    await app.close();
+  });
+
+  it("rechaza el envío revisado inválido sin llamar a Gemini", async () => {
+    const { app, session } = await setupWithUser();
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/ia/send-email",
+      headers: { authorization: `Bearer ${session.accessToken}` },
+      payload: { to: "no-es-un-correo", subject: "", body: "" },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(fetchMock).not.toHaveBeenCalled();
 
     await app.close();
   });
