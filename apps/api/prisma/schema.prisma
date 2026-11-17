@@ -24,6 +24,7 @@ model User {
   tags          Tag[]
   refreshTokens RefreshToken[]
   cvs           UserCv[]
+  settings      UserSettings?
 
   @@map("users")
 }
@@ -156,4 +157,18 @@ model UserCv {
 
   @@index([userId])
   @@map("user_cvs")
+}
+
+/// Preferencias de la cuenta que deben seguir al usuario entre equipos.
+model UserSettings {
+  userId               String   @id @map("user_id") @db.Uuid
+  syncEnabled          Boolean  @default(true)  @map("sync_enabled")
+  notificationsEnabled Boolean  @default(true)  @map("notifications_enabled")
+  followUpDays         Int      @default(7)     @map("follow_up_days")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_settings")
 }

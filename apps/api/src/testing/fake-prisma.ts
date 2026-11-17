@@ -75,6 +75,7 @@ export function createFakePrisma() {
   const tags: Row[] = [];
   const applicationTags: Row[] = [];
   const userCvs: Row[] = [];
+  const userSettingsRows: Row[] = [];
 
   let counter = 0;
   const nextId = () => `00000000-0000-4000-8000-${String(++counter).padStart(12, "0")}`;
@@ -135,6 +136,51 @@ export function createFakePrisma() {
         const row = userCvs.find((cv) => matches(cv, where));
         if (!row) throw new Error("CV no encontrado en el cliente falso");
         Object.assign(row, data);
+        return clone(row);
+      },
+    },
+
+    userSettings: {
+      async findUnique({ where }: Row) {
+        return clone(userSettingsRows.find((row) => matches(row, where))) ?? null;
+      },
+      async create({ data }: Row) {
+        const now = new Date();
+        const row = {
+          createdAt: now,
+          updatedAt: now,
+          syncEnabled: true,
+          notificationsEnabled: true,
+          followUpDays: 7,
+          ...data,
+        };
+        userSettingsRows.push(row);
+        return clone(row);
+      },
+      async update({ where, data }: Row) {
+        const row = userSettingsRows.find((item) => matches(item, where));
+        if (!row) throw new Error("userSettings no encontrado en el cliente falso");
+        Object.assign(row, data);
+        row.updatedAt = new Date();
+        return clone(row);
+      },
+      async upsert({ where, create, update }: Row) {
+        const existing = userSettingsRows.find((item) => matches(item, where));
+        if (existing) {
+          Object.assign(existing, update);
+          existing.updatedAt = new Date();
+          return clone(existing);
+        }
+        const now = new Date();
+        const row = {
+          createdAt: now,
+          updatedAt: now,
+          syncEnabled: true,
+          notificationsEnabled: true,
+          followUpDays: 7,
+          ...create,
+        };
+        userSettingsRows.push(row);
         return clone(row);
       },
     },

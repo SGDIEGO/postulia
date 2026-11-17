@@ -41,6 +41,26 @@ export interface ApiErrorBody {
   details?: unknown;
 }
 
+/** Preferencias de la cuenta que se cargan al iniciar sesión en cualquier equipo. */
+export interface UserSettings {
+  syncEnabled: boolean;
+  notificationsEnabled: boolean;
+  followUpDays: number;
+}
+
+export const userSettingsPatchSchema = z.object({
+  syncEnabled: z.boolean().optional(),
+  notificationsEnabled: z.boolean().optional(),
+  followUpDays: z
+    .number()
+    .int("Los días deben ser un número entero")
+    .min(1, "El seguimiento debe ser de al menos 1 día")
+    .max(365, "El seguimiento no puede superar los 365 días")
+    .optional(),
+});
+
+export type UserSettingsPatch = z.infer<typeof userSettingsPatchSchema>;
+
 /** Tiempos de vida de los tokens. */
 export const TOKEN_TTL = {
   accessToken: "30m",

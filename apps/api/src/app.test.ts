@@ -590,3 +590,144 @@ describe("correo con IA", () => {
     await app.close();
   });
 });
+
+describe("preferencias del usuario", () => {
+  it("devuelve valores por defecto y crea la fila si falta", async () => {
+    const app = await setup();
+    const session = await register(app);
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/users/settings",
+      headers: { authorization: `Bearer ${session.accessToken}` },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      syncEnabled: true,
+      notificationsEnabled: true,
+      followUpDays: 7,
+    });
+
+    await app.close();
+  });
+
+  it("persiste los cambios y los devuelve en la siguiente consulta", async () => {
+    const app = await setup();
+    const session = await register(app);
+    const headers = { authorization: `Bearer ${session.accessToken}` };
+
+    const update = await app.inject({
+      method: "PUT",
+      url: "/api/users/settings",
+      headers,
+      payload: { syncEnabled: false, notificationsEnabled: false, followUpDays: 14 },
+    });
+    expect(update.statusCode).toBe(200);
+    expect(update.json()).toEqual({
+      syncEnabled: false,
+      notificationsEnabled: false,
+      followUpDays: 14,
+    });
+
+    const read = await app.inject({ method: "GET", url: "/api/users/settings", headers });
+    expect(read.statusCode).toBe(200);
+    expect(read.json()).toEqual({
+      syncEnabled: false,
+      notificationsEnabled: false,
+      followUpDays: 14,
+    });
+
+    await app.close();
+  });
+
+  it("permite actualizaciones parciales sin borrar el resto", async () => {
+    const app = await setup();
+    const session = await register(app);
+    const headers = { authorization: `Bearer ${session.accessToken}` };
+
+    await app.inject({
+      method: "PUT",
+      url: "/api/users/settings",
+      headers,
+      payload: { followUpDays: 21 },
+    });
+
+    const response = await app.inject({
+      method: "PUT",
+      url: "/api/users/settings",
+      headers,
+      payload: { notificationsEnabled: false },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      syncEnabled: true,
+      notificationsEnabled: false,
+      followUpDays: 21,
+    });
+
+    await app.close();
+  });
+
+  it("rechaza días de seguimiento fuera de rango", async () => {
+    const app = await setup();
+    const session = await register(app);
+    const headers = { authorization: `Bearer ${session.accessToken}` };
+
+    const tooLow = await app.inject({
+      method: "PUT",
+      url: "/api/users/settings",
+      headers,
+      payload: { followUpDays: 0 },
+    });
+    expect(tooLow.statusCode).toBe(400);
+
+    const tooHigh = await app.inject({
+      method: "PUT",
+      url: "/api/users/settings",
+      headers,
+      payload: { followUpDays: 366 },
+    });
+    expect(tooHigh.statusCode).toBe(400);
+
+    const fractional = await app.inject({
+      method: "PUT",
+      url: "/api/users/settings",
+      headers,
+      payload: { followUpDays: 7.5 },
+    });
+    expect(fractional.statusCode).toBe(400);
+
+    await app.close();
+  });
+
+  it("requiere sesión y aísla las preferencias entre usuarios", async () => {
+    const app = await setup();
+    const first = await register(app, "uno@example.com");
+    const second = await register(app, "dos@example.com");
+
+    const anonymous = await app.inject({ method: "GET", url: "/api/users/settings" });
+    expect(anonymous.statusCode).toBe(401);
+
+    await app.inject({
+      method: "PUT",
+      url: "/api/users/settings",
+      headers: { authorization: `Bearer ${first.accessToken}` },
+      payload: { followUpDays: 3, syncEnabled: false },
+    });
+
+    const other = await app.inject({
+      method: "GET",
+      url: "/api/users/settings",
+      headers: { authorization: `Bearer ${second.accessToken}` },
+    });
+    expect(other.json()).toEqual({
+      syncEnabled: true,
+      notificationsEnabled: true,
+      followUpDays: 7,
+    });
+
+    await app.close();
+  });
+});

@@ -14,6 +14,7 @@ import remindersRoutes from "./routes/reminders.js";
 import statsRoutes from "./routes/stats.js";
 import syncRoutes from "./routes/sync.js";
 import tagsRoutes from "./routes/tags.js";
+import userSettingsRoutes from "./routes/user-settings.js";
 import usersRoutes from "./routes/users.js";
 
 export interface BuildAppOptions {
@@ -62,7 +63,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
 
   await app.register(cors, {
     origin: buildOriginChecker(env) as unknown as FastifyCorsOptions["origin"],
-    methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
     maxAge: 86_400,
   });
@@ -133,6 +134,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   await app.register(tagsRoutes);
   await app.register(syncRoutes);
   await app.register(statsRoutes);
+  await app.register(userSettingsRoutes);
   await app.register(usersRoutes);
 
   return app;
