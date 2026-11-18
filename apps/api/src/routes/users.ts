@@ -1,8 +1,14 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { badGateway, badRequest, notFound, unauthorized } from "../lib/errors.js";
-import nodemailer from "nodemailer";
+import {
+  badGateway,
+  badRequest,
+  notFound,
+  serviceUnavailable,
+  unauthorized,
+} from "../lib/errors.js";
 import { PDFParse } from "pdf-parse";
+import { isMailConfigured, sendMail } from "../lib/mailer.js";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { decryptUserSecret, encryptUserSecret } from "../lib/user-secrets.js";
@@ -466,19 +472,11 @@ Devuelve ÚNICAMENTE un objeto JSON con este formato exacto:
     const user = await app.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw unauthorized("Usuario no encontrado");
 
-    if (!app.env.SMTP_HOST || !app.env.SMTP_USER || !app.env.SMTP_PASS) {
-      throw badRequest("El servidor no tiene configurado SMTP para enviar correos.");
+    if (!isMailConfigured(app.env)) {
+      throw serviceUnavailable(
+        "El servidor no tiene configurado el correo saliente. Avisa al administrador.",
+      );
     }
-
-    const transporter = nodemailer.createTransport({
-      host: app.env.SMTP_HOST,
-      port: app.env.SMTP_PORT,
-      secure: app.env.SMTP_SECURE === "true",
-      auth: {
-        user: app.env.SMTP_USER,
-        pass: app.env.SMTP_PASS,
-      },
-    });
 
     let attachment: { filename: string; content: Buffer } | null = null;
     try {
@@ -490,14 +488,18 @@ Devuelve ÚNICAMENTE un objeto JSON con este formato exacto:
       request.log.warn({ filePath: userCv.filePath }, "No se pudo leer el PDF del CV");
     }
 
-    await transporter.sendMail({
-      from: app.env.SMTP_FROM || app.env.SMTP_USER,
-      to,
-      subject,
-      text: body,
-      html: bodyToHtml(body),
-      ...(attachment ? { attachments: [attachment] } : {}),
-    });
+    try {
+      await sendMail(app.env, {
+        to,
+        subject,
+        text: body,
+        html: bodyToHtml(body),
+        ...(attachment ? { attachments: [attachment] } : {}),
+      });
+    } catch (error) {
+      request.log.error({ err: error }, "No se pudo enviar el correo con el CV");
+      throw badGateway("No se pudo enviar el correo. Revisa la configuración SMTP del servidor.");
+    }
 
     reply.code(200);
     return {

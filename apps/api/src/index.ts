@@ -1,5 +1,6 @@
 import { buildApp } from "./app.js";
 import { loadEnv } from "./env.js";
+import { isMailConfigured } from "./lib/mailer.js";
 
 const env = loadEnv();
 const app = await buildApp({ env });
@@ -24,6 +25,11 @@ try {
   if (env.CORS_ORIGINS.includes("*") && env.NODE_ENV === "production") {
     app.log.warn(
       "CORS_ORIGINS contiene comodines; en producción conviene fijar el id exacto de la extensión",
+    );
+  }
+  if (!isMailConfigured(env)) {
+    app.log.warn(
+      "SMTP sin configurar: el registro de cuentas y el envío de CV por correo no funcionarán",
     );
   }
 } catch (error) {

@@ -1,9 +1,27 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PrismaClient } from "@prisma/client";
-import type { ApplicationSync, AuthSession, SyncPushResult } from "@postulia/shared";
+import type {
+  ApplicationSync,
+  AuthSession,
+  RegisterResult,
+  SyncPushResult,
+  VerificationStatus,
+} from "@postulia/shared";
 import { buildApp } from "./app.js";
 import type { Env } from "./env.js";
 import { createFakePrisma } from "./testing/fake-prisma.js";
+
+const { sendMailMock } = vi.hoisted(() => ({ sendMailMock: vi.fn() }));
+
+// Nodemailer nunca sale a la red en las pruebas.
+vi.mock("nodemailer", () => ({
+  default: {
+    createTransport: () => ({
+      sendMail: sendMailMock,
+      close: () => undefined,
+    }),
+  },
+}));
 
 const testEnv: Env = {
   NODE_ENV: "test",
@@ -16,6 +34,9 @@ const testEnv: Env = {
   RATE_LIMIT_MAX: 10_000,
   RATE_LIMIT_WINDOW: "1 minute",
   ALLOW_REGISTRATION: true,
+  PUBLIC_URL: "http://localhost:3000",
+  EMAIL_VERIFICATION_TTL_MINUTES: 30,
+  REQUIRE_EMAIL_VERIFICATION: true,
   SMTP_HOST: "smtp.test.local",
   SMTP_PORT: 587,
   SMTP_SECURE: "false",
@@ -25,28 +46,70 @@ const testEnv: Env = {
   GEMINI_MODEL: "gemini-2.5-flash",
 };
 
-async function setup() {
+afterEach(() => {
+  sendMailMock.mockClear();
+});
+
+async function setupWithPrisma(overrides: Partial<Env> = {}) {
   const prisma = createFakePrisma();
   const app = await buildApp({
-    env: testEnv,
+    env: { ...testEnv, ...overrides },
     prisma: prisma as unknown as PrismaClient,
     logger: false,
   });
   await app.ready();
-  return app;
+  return { app, prisma };
 }
 
-async function register(
+async function setup() {
+  return (await setupWithPrisma()).app;
+}
+
+/** Token del enlace del último correo de verificación enviado. */
+function lastVerificationToken(): string {
+  const call = sendMailMock.mock.calls.at(-1)?.[0] as { text?: string } | undefined;
+  const match = /token=([A-Za-z0-9_-]+)/.exec(call?.text ?? "");
+  if (!match) throw new Error("El correo de verificación no contiene un token");
+  return match[1] ?? "";
+}
+
+async function registerRaw(
   app: Awaited<ReturnType<typeof setup>>,
   email = "diego@example.com",
-): Promise<AuthSession> {
+): Promise<RegisterResult> {
   const response = await app.inject({
     method: "POST",
     url: "/api/auth/register",
     payload: { email, password: "contrasena-larga-123", name: "Diego" },
   });
   expect(response.statusCode).toBe(201);
-  return response.json<AuthSession>();
+  return response.json<RegisterResult>();
+}
+
+/** Registra y confirma el correo para obtener una sesión real. */
+async function register(
+  app: Awaited<ReturnType<typeof setup>>,
+  email = "diego@example.com",
+): Promise<AuthSession> {
+  const result = await registerRaw(app, email);
+  if ("accessToken" in result) return result;
+
+  const link = await app.inject({
+    method: "GET",
+    url: `/api/auth/verify-email?token=${encodeURIComponent(lastVerificationToken())}`,
+    headers: { accept: "application/json" },
+  });
+  expect(link.json()).toMatchObject({ status: "verified" });
+
+  const status = await app.inject({
+    method: "POST",
+    url: "/api/auth/verify-email/status",
+    payload: { token: result.verificationToken },
+  });
+  expect(status.statusCode).toBe(200);
+  const body = status.json<VerificationStatus>();
+  if (!body.session) throw new Error("La verificación no emitió sesión");
+  return body.session;
 }
 
 const sampleApplication = {
@@ -589,6 +652,231 @@ describe("correo con IA", () => {
 
     await app.close();
   });
+
+  it("envía el correo revisado con el SMTP global y el remitente configurado", async () => {
+    const { app, session } = await setupWithUser("envio@example.com");
+    sendMailMock.mockClear();
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/ia/send-email",
+      headers: { authorization: `Bearer ${session.accessToken}` },
+      payload: { to: "reclutador@example.com", subject: "Postulación", body: "Hola" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(sendMailMock).toHaveBeenCalledTimes(1);
+
+    const mail = sendMailMock.mock.calls[0]?.[0] as { to: string; from: string; subject: string };
+    expect(mail.to).toBe("reclutador@example.com");
+    expect(mail.from).toBe("Test <test@test.local>");
+    expect(mail.subject).toBe("Postulación");
+
+    await app.close();
+  });
+
+  it("responde 503 cuando el servidor no tiene SMTP configurado", async () => {
+    const prisma = createFakePrisma();
+    const app = await buildApp({
+      env: {
+        ...testEnv,
+        REQUIRE_EMAIL_VERIFICATION: false,
+        SMTP_HOST: undefined,
+        SMTP_USER: undefined,
+        SMTP_PASS: undefined,
+      },
+      prisma: prisma as unknown as PrismaClient,
+      logger: false,
+    });
+    await app.ready();
+
+    const session = await register(app, "sin-smtp-ia@example.com");
+    await prisma.userCv.create({
+      data: { userId: session.user.id, fileName: "cv.pdf", filePath: "/tmp/cv.pdf" },
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/ia/send-email",
+      headers: { authorization: `Bearer ${session.accessToken}` },
+      payload: { to: "reclutador@example.com", subject: "Postulación", body: "Hola" },
+    });
+
+    expect(response.statusCode).toBe(503);
+    expect(sendMailMock).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+});
+
+describe("verificación de correo", () => {
+  it("el registro no inicia sesión hasta confirmar el correo", async () => {
+    const app = await setup();
+    const result = await registerRaw(app);
+
+    expect(result).toMatchObject({
+      status: "verification_sent",
+      email: "diego@example.com",
+      expiresInMinutes: 30,
+    });
+    expect("accessToken" in result).toBe(false);
+    expect(sendMailMock).toHaveBeenCalledTimes(1);
+
+    const mail = sendMailMock.mock.calls[0]?.[0] as { to: string; text: string };
+    expect(mail.to).toBe("diego@example.com");
+    expect(mail.text).toContain("/api/auth/verify-email?token=");
+
+    const login = await app.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      payload: { email: "diego@example.com", password: "contrasena-larga-123" },
+    });
+    expect(login.statusCode).toBe(403);
+    const body = login.json();
+    expect(body.error).toBe("email_not_verified");
+    expect(body.details.verificationToken).toBeTruthy();
+    expect(body.details.expiresAt).toBeTruthy();
+
+    await app.close();
+  });
+
+  it("confirma el correo y emite la sesión una sola vez", async () => {
+    const app = await setup();
+    const result = await registerRaw(app);
+    if ("accessToken" in result) throw new Error("Se esperaba una verificación pendiente");
+    const token = lastVerificationToken();
+
+    const page = await app.inject({
+      method: "GET",
+      url: `/api/auth/verify-email?token=${encodeURIComponent(token)}`,
+    });
+    expect(page.headers["content-type"]).toContain("text/html");
+    expect(page.body).toContain("Correo confirmado");
+
+    const again = await app.inject({
+      method: "GET",
+      url: `/api/auth/verify-email?token=${encodeURIComponent(token)}`,
+      headers: { accept: "application/json" },
+    });
+    expect(again.json()).toEqual({ status: "already" });
+
+    const status = await app.inject({
+      method: "POST",
+      url: "/api/auth/verify-email/status",
+      payload: { token: result.verificationToken },
+    });
+    const payload = status.json<VerificationStatus>();
+    expect(payload.status).toBe("verified");
+    expect(payload.session?.user.email).toBe("diego@example.com");
+
+    await app.close();
+  });
+
+  it("rechaza un enlace caducado sin activar la cuenta", async () => {
+    const { app, prisma } = await setupWithPrisma();
+    const result = await registerRaw(app);
+    if ("accessToken" in result) throw new Error("Se esperaba una verificación pendiente");
+
+    const row = await prisma.emailVerification.findFirst({});
+    await prisma.emailVerification.update({
+      where: { id: row.id },
+      data: { expiresAt: new Date(Date.now() - 1000) },
+    });
+
+    const expired = await app.inject({
+      method: "GET",
+      url: `/api/auth/verify-email?token=${encodeURIComponent(lastVerificationToken())}`,
+      headers: { accept: "application/json" },
+    });
+    expect(expired.json()).toEqual({ status: "expired" });
+
+    const status = await app.inject({
+      method: "POST",
+      url: "/api/auth/verify-email/status",
+      payload: { token: result.verificationToken },
+    });
+    expect(status.json()).toMatchObject({ status: "expired" });
+
+    const login = await app.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      payload: { email: "diego@example.com", password: "contrasena-larga-123" },
+    });
+    expect(login.statusCode).toBe(403);
+
+    await app.close();
+  });
+
+  it("reenvía, invalida el enlace anterior y respeta el cooldown", async () => {
+    const { app, prisma } = await setupWithPrisma();
+    const result = await registerRaw(app);
+    if ("accessToken" in result) throw new Error("Se esperaba una verificación pendiente");
+    const oldToken = lastVerificationToken();
+
+    const tooSoon = await app.inject({
+      method: "POST",
+      url: "/api/auth/verify-email/resend",
+      payload: { token: result.verificationToken },
+    });
+    expect(tooSoon.statusCode).toBe(429);
+
+    const row = await prisma.emailVerification.findFirst({});
+    await prisma.emailVerification.update({
+      where: { id: row.id },
+      data: { createdAt: new Date(Date.now() - 120_000) },
+    });
+
+    const resend = await app.inject({
+      method: "POST",
+      url: "/api/auth/verify-email/resend",
+      payload: { token: result.verificationToken },
+    });
+    expect(resend.statusCode).toBe(200);
+    const resent = resend.json<{ verificationToken: string }>();
+    expect(resent.verificationToken).not.toBe(result.verificationToken);
+
+    const oldLink = await app.inject({
+      method: "GET",
+      url: `/api/auth/verify-email?token=${encodeURIComponent(oldToken)}`,
+      headers: { accept: "application/json" },
+    });
+    expect(oldLink.json()).toEqual({ status: "invalid" });
+
+    const newLink = await app.inject({
+      method: "GET",
+      url: `/api/auth/verify-email?token=${encodeURIComponent(lastVerificationToken())}`,
+      headers: { accept: "application/json" },
+    });
+    expect(newLink.json()).toEqual({ status: "verified" });
+
+    await app.close();
+  });
+
+  it("no permite registrarse sin SMTP configurado", async () => {
+    const { app } = await setupWithPrisma({
+      SMTP_HOST: undefined,
+      SMTP_USER: undefined,
+      SMTP_PASS: undefined,
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/auth/register",
+      payload: { email: "sin-smtp@example.com", password: "contrasena-larga-123" },
+    });
+
+    expect(response.statusCode).toBe(503);
+    expect(sendMailMock).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it("informa en /health si el correo está configurado", async () => {
+    const { app } = await setupWithPrisma();
+    const health = await app.inject({ method: "GET", url: "/health" });
+    expect(health.json()).toMatchObject({ status: "ok", mail: "configured" });
+    await app.close();
+  });
 });
 
 describe("preferencias del usuario", () => {
@@ -606,6 +894,7 @@ describe("preferencias del usuario", () => {
     expect(response.json()).toEqual({
       syncEnabled: true,
       notificationsEnabled: true,
+      emailNotificationsEnabled: true,
       followUpDays: 7,
     });
 
@@ -627,6 +916,7 @@ describe("preferencias del usuario", () => {
     expect(update.json()).toEqual({
       syncEnabled: false,
       notificationsEnabled: false,
+      emailNotificationsEnabled: true,
       followUpDays: 14,
     });
 
@@ -635,6 +925,7 @@ describe("preferencias del usuario", () => {
     expect(read.json()).toEqual({
       syncEnabled: false,
       notificationsEnabled: false,
+      emailNotificationsEnabled: true,
       followUpDays: 14,
     });
 
@@ -664,6 +955,7 @@ describe("preferencias del usuario", () => {
     expect(response.json()).toEqual({
       syncEnabled: true,
       notificationsEnabled: false,
+      emailNotificationsEnabled: true,
       followUpDays: 21,
     });
 
@@ -725,6 +1017,7 @@ describe("preferencias del usuario", () => {
     expect(other.json()).toEqual({
       syncEnabled: true,
       notificationsEnabled: true,
+      emailNotificationsEnabled: true,
       followUpDays: 7,
     });
 

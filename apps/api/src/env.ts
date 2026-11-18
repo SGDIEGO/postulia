@@ -25,6 +25,12 @@ const envSchema = z.object({
   RATE_LIMIT_WINDOW: z.string().default("1 minute"),
   ALLOW_REGISTRATION: booleanFromString(true),
   GEMINI_MODEL: z.string().default("gemini-3.8-flash"),
+  /** Base pública para los enlaces del correo. Vacío = se deduce de la petición. */
+  PUBLIC_URL: z.string().default(""),
+  /** Minutos que vive el enlace de verificación de correo. */
+  EMAIL_VERIFICATION_TTL_MINUTES: z.coerce.number().int().min(5).max(1440).default(30),
+  /** Interruptor de despliegue: permite desactivar la verificación sin desplegar. */
+  REQUIRE_EMAIL_VERIFICATION: booleanFromString(true),
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(587),
   SMTP_SECURE: z.string().default("false"),

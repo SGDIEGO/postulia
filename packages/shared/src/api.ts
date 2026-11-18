@@ -35,6 +35,38 @@ export interface AuthSession {
   accessTokenExpiresAt: string;
 }
 
+/** Datos que la extensión necesita para vigilar una verificación pendiente. */
+export interface VerificationChallenge {
+  email: string;
+  /** Token del cliente: solo consulta el estado, no verifica la cuenta. */
+  verificationToken: string;
+  expiresAt: string;
+}
+
+export interface VerificationSent extends VerificationChallenge {
+  status: "verification_sent";
+  expiresInMinutes: number;
+}
+
+/** El registro ya no inicia sesión: primero hay que confirmar el correo. */
+export type RegisterResult = AuthSession | VerificationSent;
+
+export type VerificationState = "pending" | "verified" | "expired";
+
+export interface VerificationStatus extends VerificationChallenge {
+  status: VerificationState;
+  /** Presente solo la primera vez que se consulta tras verificar. */
+  session?: AuthSession;
+}
+
+export const verificationTokenInputSchema = z.object({
+  token: z.string().min(10).max(500),
+});
+
+export type VerificationTokenInput = z.infer<typeof verificationTokenInputSchema>;
+
+export const DEFAULT_EMAIL_VERIFICATION_TTL_MINUTES = 30;
+
 export interface ApiErrorBody {
   error: string;
   message: string;
@@ -44,13 +76,17 @@ export interface ApiErrorBody {
 /** Preferencias de la cuenta que se cargan al iniciar sesión en cualquier equipo. */
 export interface UserSettings {
   syncEnabled: boolean;
+  /** Notificaciones locales del navegador (avisos de Chrome). */
   notificationsEnabled: boolean;
+  /** Correos que envía el servidor: recordatorios, resúmenes y alertas. */
+  emailNotificationsEnabled: boolean;
   followUpDays: number;
 }
 
 export const userSettingsPatchSchema = z.object({
   syncEnabled: z.boolean().optional(),
   notificationsEnabled: z.boolean().optional(),
+  emailNotificationsEnabled: z.boolean().optional(),
   followUpDays: z
     .number()
     .int("Los días deben ser un número entero")

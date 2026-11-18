@@ -5,6 +5,7 @@ import { badRequest } from "../lib/errors.js";
 const DEFAULT_USER_SETTINGS = {
   syncEnabled: true,
   notificationsEnabled: true,
+  emailNotificationsEnabled: true,
   followUpDays: 7,
 } as const;
 
@@ -12,6 +13,7 @@ function toUserSettings(row: UserSettings): UserSettings {
   return {
     syncEnabled: row.syncEnabled,
     notificationsEnabled: row.notificationsEnabled,
+    emailNotificationsEnabled: row.emailNotificationsEnabled,
     followUpDays: row.followUpDays,
   };
 }

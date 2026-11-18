@@ -9,24 +9,46 @@ datasource db {
 }
 
 model User {
-  id            String          @id @default(uuid()) @db.Uuid
-  email         String          @unique
-  passwordHash  String          @map("password_hash")
-  name          String?
-  iaProvider    String?   @map("ia_provider")
-  iaApiKey      String?   @map("ia_api_key")
-  iaModel       String?   @map("ia_model")
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime        @updatedAt @map("updated_at")
-  applications  Application[]
-  events        ApplicationEvent[]
-  reminders     Reminder[]
-  tags          Tag[]
-  refreshTokens RefreshToken[]
-  cvs           UserCv[]
-  settings      UserSettings?
+  id                 String              @id @default(uuid()) @db.Uuid
+  email              String              @unique
+  passwordHash       String              @map("password_hash")
+  name               String?
+  emailVerifiedAt    DateTime?           @map("email_verified_at")
+  iaProvider         String?             @map("ia_provider")
+  iaApiKey           String?             @map("ia_api_key")
+  iaModel            String?             @map("ia_model")
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
+  applications       Application[]
+  events             ApplicationEvent[]
+  reminders          Reminder[]
+  tags               Tag[]
+  refreshTokens      RefreshToken[]
+  cvs                UserCv[]
+  settings           UserSettings?
+  emailVerifications EmailVerification[]
 
   @@map("users")
+}
+
+/// Enlace de un solo uso para confirmar el correo al registrarse.
+model EmailVerification {
+  id              String    @id @default(uuid()) @db.Uuid
+  userId          String    @map("user_id") @db.Uuid
+  /// Hash del token que viaja en el enlace del correo.
+  tokenHash       String    @unique @map("token_hash")
+  /// Hash del token que recibe la extensión para consultar el estado.
+  clientHash      String    @unique @map("client_hash")
+  expiresAt       DateTime  @map("expires_at")
+  verifiedAt      DateTime? @map("verified_at")
+  /// Cuándo se emitió la sesión a la extensión (evita reutilizarlo sin límite).
+  sessionIssuedAt DateTime? @map("session_issued_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("email_verifications")
 }
 
 model RefreshToken {
@@ -146,11 +168,11 @@ model ApplicationTag {
 }
 
 model UserCv {
-  id        String   @id @default(uuid()) @db.Uuid
-  userId    String   @map("user_id") @db.Uuid
-  fileName  String   @map("file_name")
-  filePath  String   @map("file_path")
-  text      String?  @map("text")
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  fileName   String   @map("file_name")
+  filePath   String   @map("file_path")
+  text       String?  @map("text")
   uploadedAt DateTime @default(now()) @map("uploaded_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -161,12 +183,13 @@ model UserCv {
 
 /// Preferencias de la cuenta que deben seguir al usuario entre equipos.
 model UserSettings {
-  userId               String   @id @map("user_id") @db.Uuid
-  syncEnabled          Boolean  @default(true)  @map("sync_enabled")
-  notificationsEnabled Boolean  @default(true)  @map("notifications_enabled")
-  followUpDays         Int      @default(7)     @map("follow_up_days")
-  createdAt            DateTime @default(now()) @map("created_at")
-  updatedAt            DateTime @updatedAt @map("updated_at")
+  userId                    String   @id @map("user_id") @db.Uuid
+  syncEnabled               Boolean  @default(true) @map("sync_enabled")
+  notificationsEnabled      Boolean  @default(true) @map("notifications_enabled")
+  emailNotificationsEnabled Boolean  @default(true) @map("email_notifications_enabled")
+  followUpDays              Int      @default(7) @map("follow_up_days")
+  createdAt                 DateTime @default(now()) @map("created_at")
+  updatedAt                 DateTime @updatedAt @map("updated_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 

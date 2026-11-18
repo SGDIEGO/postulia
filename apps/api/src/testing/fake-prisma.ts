@@ -76,6 +76,7 @@ export function createFakePrisma() {
   const applicationTags: Row[] = [];
   const userCvs: Row[] = [];
   const userSettingsRows: Row[] = [];
+  const emailVerifications: Row[] = [];
 
   let counter = 0;
   const nextId = () => `00000000-0000-4000-8000-${String(++counter).padStart(12, "0")}`;
@@ -151,6 +152,7 @@ export function createFakePrisma() {
           updatedAt: now,
           syncEnabled: true,
           notificationsEnabled: true,
+          emailNotificationsEnabled: true,
           followUpDays: 7,
           ...data,
         };
@@ -177,11 +179,62 @@ export function createFakePrisma() {
           updatedAt: now,
           syncEnabled: true,
           notificationsEnabled: true,
+          emailNotificationsEnabled: true,
           followUpDays: 7,
           ...create,
         };
         userSettingsRows.push(row);
         return clone(row);
+      },
+    },
+
+    emailVerification: {
+      async create({ data }: Row) {
+        const row = {
+          id: data.id ?? nextId(),
+          verifiedAt: null,
+          sessionIssuedAt: null,
+          createdAt: new Date(),
+          ...data,
+        };
+        emailVerifications.push(row);
+        return clone(row);
+      },
+      async findUnique({ where, include }: Row) {
+        const row = emailVerifications.find((item) => matches(item, where));
+        if (!row) return null;
+        const result = clone(row);
+        if (include?.user) {
+          result.user = clone(users.find((user) => user.id === row.userId));
+        }
+        return result;
+      },
+      async findFirst({ where, include, orderBy }: Row) {
+        const sorted = sortRows(
+          emailVerifications.filter((item) => matches(item, where)),
+          orderBy,
+        );
+        const row = sorted[0];
+        if (!row) return null;
+        const result = clone(row);
+        if (include?.user) {
+          result.user = clone(users.find((user) => user.id === row.userId));
+        }
+        return result;
+      },
+      async update({ where, data }: Row) {
+        const row = emailVerifications.find((item) => matches(item, where));
+        if (!row) throw new Error("emailVerification no encontrado en el cliente falso");
+        Object.assign(row, data);
+        return clone(row);
+      },
+      async deleteMany({ where }: Row) {
+        const rows = emailVerifications.filter((item) => matches(item, where));
+        for (const row of rows) {
+          const index = emailVerifications.indexOf(row);
+          if (index >= 0) emailVerifications.splice(index, 1);
+        }
+        return { count: rows.length };
       },
     },
 
