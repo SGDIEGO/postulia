@@ -8,12 +8,13 @@ import {
   faRobot,
   faRightFromBracket,
   faServer,
+  faSliders,
   faUpload,
   faUser,
 } from "@fortawesome/free-solid-svg-icons";
-import { formatDateTimeEs } from "@postulia/shared";
+import { formatDateTimeEs, type UserSettings } from "@postulia/shared";
 import { FaIcon } from "~/components/FaIcon";
-import { Button, Card, Field, Input, Select, Spinner, cn } from "~/components/ui";
+import { Button, Card, Field, Input, Select, Spinner, Toggle, cn } from "~/components/ui";
 import { login, logout, register, ensureApiPermission } from "~/lib/auth";
 import { pingServer } from "~/lib/api";
 import { apiRequest } from "~/lib/api";
@@ -22,6 +23,7 @@ import { useSettingsRow, useExtensionStatus } from "~/lib/hooks";
 import { sendMessage } from "~/lib/messaging";
 import { normalizeApiUrl, updateSettings } from "~/lib/settings";
 import { syncNow, pullRemoteChanges } from "~/lib/sync";
+import { hydrateCvMetadata, hydrateUserSettings, saveUserSettings } from "~/lib/user-config";
 import { exportCsv, exportJson, importCsv, importJson, downloadFile } from "~/lib/transfer";
 import { useLiveQuery } from "dexie-react-hooks";
 import { deleteReminder } from "~/lib/repository";
@@ -46,6 +48,7 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
   const [iaModelsBusy, setIaModelsBusy] = useState(false);
   const [iaModelsError, setIaModelsError] = useState<string | null>(null);
   const [cvFile, setCvFile] = useState<File | null>(null);
+  const [followUpDaysDraft, setFollowUpDaysDraft] = useState("7");
   const [mode, setMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -68,12 +71,22 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
     setIaModel(settings.iaModel ?? "");
   }, [settings]);
 
+  useEffect(() => {
+    if (!settings) return;
+    setFollowUpDaysDraft(String(settings.followUpDays));
+  }, [settings?.followUpDays]);
+
   const accessToken = settings?.accessToken ?? null;
 
   useEffect(() => {
     if (!accessToken) return;
-    void loadIAConfig();
-    void loadIAModels();
+    // En serie para no pisar la misma fila de ajustes con escrituras concurrentes.
+    void (async () => {
+      await hydrateUserSettings();
+      await hydrateCvMetadata();
+      await loadIAConfig();
+      await loadIAModels();
+    })();
   }, [accessToken]);
 
   async function loadIAConfig() {
@@ -251,6 +264,43 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
     }
   }
 
+  async function changePreference(patch: Partial<UserSettings>) {
+    if (!settings) return;
+    const previous: UserSettings = {
+      syncEnabled: settings.syncEnabled,
+      notificationsEnabled: settings.notificationsEnabled,
+      followUpDays: settings.followUpDays,
+    };
+
+    setBusy("prefs");
+    setError(null);
+    setInfo(null);
+    // Cambio optimista: la UI responde al instante y se revierte si el PUT falla.
+    await updateSettings(patch);
+
+    try {
+      await saveUserSettings(patch);
+      setInfo("Preferencias guardadas en tu cuenta.");
+    } catch (saveError) {
+      await updateSettings(previous);
+      setError(
+        saveError instanceof Error ? saveError.message : "No se pudieron guardar las preferencias.",
+      );
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  function saveFollowUpDays() {
+    const days = Number(followUpDaysDraft);
+    if (!Number.isInteger(days) || days < 1 || days > 365) {
+      setError("Los días de seguimiento deben ser un número entero entre 1 y 365.");
+      setFollowUpDaysDraft(String(settings?.followUpDays ?? 7));
+      return;
+    }
+    void changePreference({ followUpDays: days });
+  }
+
   async function submitAuth() {
     setBusy("auth");
     setError(null);
@@ -368,9 +418,6 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
                     <option value="">Selecciona un proveedor</option>
                     <option value="gemini">Gemini</option>
                   </Select>
-                  <p className="mt-1 text-[11px] text-slate-400">
-                    Por ahora usa "gemini". La API key se cifra y se guarda en tu servidor.
-                  </p>
                 </Field>
 
                 <Field label="API key de IA">
@@ -381,10 +428,6 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
                     placeholder="Pega aquí tu API key de Gemini"
                     autoComplete="off"
                   />
-                  <p className="mt-1 text-[11px] text-slate-400">
-                    Cada usuario usa su propia API key. Se cifra en el servidor y no se vuelve a
-                    mostrar.
-                  </p>
                 </Field>
 
                 <div>
@@ -422,9 +465,6 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
                       {iaModelsBusy ? "Cargando…" : "Recargar"}
                     </Button>
                   </div>
-                  <p className="mt-1 text-[11px] text-slate-400">
-                    La lista se obtiene con tu API key y solo muestra modelos que generan texto.
-                  </p>
                 </div>
 
                 {iaModelsError ? (
@@ -439,9 +479,7 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
                     iaConfigured ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700",
                   )}
                 >
-                  {iaConfigured
-                    ? "API key configurada. Los correos se generan con tu propia cuota de Gemini."
-                    : "Aún no hay API key guardada. Sin ella no se pueden generar borradores."}
+                  {iaConfigured ? "API key configurada" : "Sin API key"}
                 </p>
 
                 <div className="flex items-center gap-2">
@@ -492,6 +530,46 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
             </Card>
           ) : null}
 
+          {settings.accessToken ? (
+            <Card
+              title="Preferencias"
+              actions={<FaIcon icon={faSliders} size={16} className="text-slate-400" />}
+            >
+              <div className="space-y-3">
+                <Toggle
+                  label="Sincronización automática"
+                  checked={settings.syncEnabled}
+                  onChange={(value) => void changePreference({ syncEnabled: value })}
+                />
+                <Toggle
+                  label="Notificaciones de recordatorios"
+                  checked={settings.notificationsEnabled}
+                  onChange={(value) => void changePreference({ notificationsEnabled: value })}
+                />
+
+                <Field label="Días para hacer seguimiento" hint="Entre 1 y 365 días">
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number"
+                      min={1}
+                      max={365}
+                      value={followUpDaysDraft}
+                      onChange={(event) => setFollowUpDaysDraft(event.target.value)}
+                    />
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={saveFollowUpDays}
+                      disabled={busy === "prefs"}
+                    >
+                      <FaIcon icon={faFloppyDisk} size={14} /> Guardar
+                    </Button>
+                  </div>
+                </Field>
+              </div>
+            </Card>
+          ) : null}
+
           <Card
             title="Cuenta"
             actions={<FaIcon icon={faUser} size={16} className="text-slate-400" />}
@@ -527,10 +605,7 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
                     <FaIcon icon={faRightFromBracket} size={14} /> Cerrar sesión
                   </Button>
                 </div>
-                <p className="text-xs text-slate-400">
-                  Cambios pendientes: {status?.pending ?? 0}. Los datos viven en tu navegador y se
-                  respaldan en tu servidor.
-                </p>
+                <p className="text-xs text-slate-400">Cambios pendientes: {status?.pending ?? 0}</p>
               </div>
             ) : (
               <div className="space-y-3">
@@ -587,11 +662,6 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
                 <Button size="sm" onClick={() => void submitAuth()} disabled={busy === "auth"}>
                   {mode === "login" ? "Entrar" : "Crear cuenta"}
                 </Button>
-
-                <p className="text-xs text-slate-400">
-                  Puedes usar Postulia sin cuenta: todo se guarda en local y sincronizas cuando
-                  quieras.
-                </p>
               </div>
             )}
           </Card>
@@ -625,11 +695,6 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
                 }}
               />
             </label>
-            <p className="mt-1 text-[11px] text-slate-400">
-              El CSV admite columnas: puesto, empresa, enlace, portal, estado, ubicacion, modalidad,
-              salario, moneda, contrato, fecha_postulacion, etiquetas, reclutador,
-              contacto_reclutador, notas.
-            </p>
           </div>
 
           {settings.apiUrl && (

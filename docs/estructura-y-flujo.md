@@ -154,7 +154,7 @@ del post y lo pega en la pestaña `Post IA`. El parser hace lo siguiente:
   text: string;
   email: string | null;
   url: string | null;
-  author: string | null;  // siempre null
+  author: string | null; // siempre null
   postedAt: string | null; // siempre null
 }
 ```
@@ -185,7 +185,10 @@ un timeout para evitar que la interfaz quede esperando indefinidamente.
 - [`lib/auth.ts`](../apps/extension/lib/auth.ts): login, registro, logout y
   persistencia de la sesión.
 - [`lib/settings.ts`](../apps/extension/lib/settings.ts): URL de API, tokens,
-  usuario, CV local y preferencias.
+  usuario y caché local de CV y preferencias.
+- [`lib/user-config.ts`](../apps/extension/lib/user-config.ts): hidrata desde
+  el servidor las preferencias y los metadatos del CV, y guarda las
+  preferencias de la cuenta.
 - [`lib/ia.service.ts`](../apps/extension/lib/ia.service.ts): genera el
   borrador con IA y envía el correo ya revisado.
 
@@ -238,7 +241,7 @@ post y lo pega.
 El textarea guarda el contenido en `postText`. En cada cambio se llama a:
 
 ```ts
-parsePastedPost(value)
+parsePastedPost(value);
 ```
 
 El parser devuelve el texto limpio, el correo detectado y la URL del post si
@@ -441,7 +444,8 @@ Este endpoint **no vuelve a llamar a Gemini**: envía lo que el usuario aprobó.
 ### Paso 12: el backend envía el correo por SMTP
 
 La ruta valida el cuerpo con `sendReviewedEmailSchema`, busca el CV del usuario
-y crea un transportador Nodemailer con:
+y crea un transportador Nodemailer con la **configuración SMTP global** del
+backend:
 
 ```text
 SMTP_HOST
@@ -451,6 +455,12 @@ SMTP_USER
 SMTP_PASS
 SMTP_FROM
 ```
+
+Hay un solo servidor SMTP para toda la instalación. Lo configura el
+administrador en `apps/api/.env` y lo comparten todos los usuarios. La
+extensión no pide ni guarda credenciales SMTP: el remitente (`from`) es
+`SMTP_FROM` o, si falta, `SMTP_USER`. El usuario solo aporta el destinatario,
+el asunto, el cuerpo y su CV adjunto.
 
 Envía:
 
@@ -476,8 +486,7 @@ Solo cuando el envío responde con éxito, el panel guarda el post:
 
 ```ts
 {
-  type: "postulia:save-linkedin-post",
-  post
+  type: ("postulia:save-linkedin-post", post);
 }
 ```
 
@@ -576,6 +585,8 @@ La API está en [`apps/api/`](../apps/api/). Usa Fastify, Prisma y PostgreSQL.
   recordatorios.
 - [`src/routes/stats.ts`](../apps/api/src/routes/stats.ts): estadísticas.
 - [`src/routes/tags.ts`](../apps/api/src/routes/tags.ts): etiquetas.
+- [`src/routes/user-settings.ts`](../apps/api/src/routes/user-settings.ts):
+  preferencias de la cuenta.
 - [`src/routes/users.ts`](../apps/api/src/routes/users.ts): CV,
   configuración de IA por usuario y correo con IA.
 
@@ -592,6 +603,7 @@ principales:
 - `Tag`
 - `ApplicationTag`
 - `UserCv`
+- `UserSettings`
 
 Los archivos de
 [`prisma/migrations/`](../apps/api/prisma/migrations/) contienen la evolución
@@ -618,17 +630,16 @@ consumen su salida `dist`.
 
 ## 7. Configuración de IA y correo
 
+Hay dos configuraciones distintas: **la IA es por usuario** y **el SMTP es
+global**.
+
+### IA por usuario
+
 La IA usa la API key de Gemini de cada usuario. En `apps/api/.env` solo queda
 el modelo por defecto del servidor:
 
 ```env
 GEMINI_MODEL=gemini-3.8-flash
-SMTP_HOST=...
-SMTP_PORT=587
-SMTP_SECURE=false
-SMTP_USER=...
-SMTP_PASS=...
-SMTP_FROM=...
 ```
 
 Cada usuario guarda su propia API key de Gemini desde **Ajustes → IA y
@@ -658,6 +669,57 @@ configured }` sin exponer la clave.
 
 No hay respaldo a una `GEMINI_API_KEY` global: sin key del usuario, la
 generación falla con un mensaje que pide configurarla en Ajustes.
+
+### SMTP global
+
+El envío de correos usa un único servidor SMTP para todos los usuarios. Lo
+configura el administrador una sola vez en `apps/api/.env`:
+
+```env
+SMTP_HOST=...
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=...
+SMTP_PASS=...
+SMTP_FROM=...
+```
+
+Ningún usuario configura credenciales SMTP desde la extensión. El backend usa
+siempre esa cuenta para enviar, y `from` es `SMTP_FROM` o, si falta,
+`SMTP_USER`. El usuario solo revisa y confirma el destinatario, el asunto y el
+cuerpo; el CV adjunto se toma de su propia fila en `user_cvs`.
+
+### Preferencias de la cuenta
+
+Las preferencias que deben seguir al usuario entre equipos viven en el
+servidor, en la tabla `user_settings` (relación 1:1 con `users`):
+
+- `syncEnabled`
+- `notificationsEnabled`
+- `followUpDays`
+
+Se leen y escriben desde **Ajustes → Preferencias** con:
+
+```text
+GET /api/users/settings
+PUT /api/users/settings
+```
+
+El `GET` crea la fila con valores por defecto (`true`, `true`, `7`) si todavía
+no existe. El `PUT` acepta actualizaciones parciales y valida que
+`followUpDays` sea un entero entre 1 y 365. Ambos endpoints requieren sesión.
+
+Al iniciar sesión o registrar una cuenta, `lib/auth.ts` llama a
+`hydrateUserSettings()`. El service worker repite la hidratación al arrancar
+antes de programar las alarmas, porque `syncEnabled` decide si se activa la
+sincronización automática. Asimismo, `hydrateCvMetadata()` recupera el nombre y
+la fecha del CV del servidor para mostrarlos en Ajustes.
+
+Siguen siendo locales al dispositivo, porque dependen de él o de su sesión:
+
+- `apiUrl`: sin ella el cliente no puede llegar al servidor.
+- `accessToken` y `refreshToken`: credenciales de la sesión.
+- `lastPulledAt`, `lastSyncAt` y `lastSyncError`: estado de sincronización.
 
 También necesita la configuración general:
 
@@ -742,10 +804,10 @@ npm run dev:ext
 
 Postulia tiene dos flujos diferentes:
 
-| Flujo | Entrada | Resultado |
-|---|---|---|
-| Captura de oferta | Página de una vacante | Postulación local con puesto, empresa y estado |
-| Post de LinkedIn + IA | Texto pegado por el usuario | Correo generado por Gemini y enviado por SMTP |
+| Flujo                 | Entrada                     | Resultado                                      |
+| --------------------- | --------------------------- | ---------------------------------------------- |
+| Captura de oferta     | Página de una vacante       | Postulación local con puesto, empresa y estado |
+| Post de LinkedIn + IA | Texto pegado por el usuario | Correo generado por Gemini y enviado por SMTP  |
 
 Un post de LinkedIn no se convierte automáticamente en una `Application`. Se
 guarda en `linkedinPosts` y se usa como contexto para el correo. La

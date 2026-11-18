@@ -2,6 +2,7 @@ import type { AuthSession, LoginInput, RegisterInput, UserProfile } from "@postu
 import { browser } from "wxt/browser";
 import { apiRequest } from "./api";
 import { clearSession, getSettings, hasSession, updateSettings } from "./settings";
+import { hydrateCvMetadata, hydrateUserSettings } from "./user-config";
 
 export async function login(input: LoginInput): Promise<UserProfile> {
   const session = await apiRequest<AuthSession>("/api/auth/login", {
@@ -47,6 +48,11 @@ async function persistSession(session: AuthSession): Promise<void> {
     accessTokenExpiresAt: session.accessTokenExpiresAt,
     user: session.user,
   });
+
+  // Trae la configuración de la cuenta para que al entrar desde otro equipo
+  // el usuario encuentre sus preferencias y su CV ya cargados.
+  await hydrateUserSettings();
+  await hydrateCvMetadata();
 }
 
 /**

@@ -1,6 +1,8 @@
 /**
  * Servicio de correo con IA. La llamada se hace a tu propio backend, que es
- * quien tiene la API key de Gemini, el CV del usuario y las credenciales SMTP.
+ * quien tiene la API key de Gemini del usuario, el CV del usuario y el único
+ * servidor SMTP global, configurado por el administrador en sus variables de
+ * entorno. El usuario nunca configura SMTP desde la extensión.
  *
  * El flujo tiene dos pasos deliberadamente separados:
  * 1. `generateEmailDraft()` pide el borrador y NO envía nada.
@@ -43,17 +45,14 @@ export async function generateEmailDraft(
   backendUrl: string,
   to?: string | null,
 ): Promise<DraftEmailResponse> {
-  const response = await fetch(
-    `${backendUrl.replace(/\/+$/, "")}/api/ia/draft-email`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-      },
-      body: JSON.stringify({ ...post, ...(to ? { to } : {}) }),
+  const response = await fetch(`${backendUrl.replace(/\/+$/, "")}/api/ia/draft-email`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
     },
-  );
+    body: JSON.stringify({ ...post, ...(to ? { to } : {}) }),
+  });
 
   const data = await response.json().catch(() => null);
 
@@ -83,17 +82,14 @@ export async function sendReviewedEmail(
   draft: EmailDraft,
   backendUrl: string,
 ): Promise<SendEmailResponse> {
-  const response = await fetch(
-    `${backendUrl.replace(/\/+$/, "")}/api/ia/send-email`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-      },
-      body: JSON.stringify(draft),
+  const response = await fetch(`${backendUrl.replace(/\/+$/, "")}/api/ia/send-email`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
     },
-  );
+    body: JSON.stringify(draft),
+  });
 
   const data = await response.json().catch(() => null);
 

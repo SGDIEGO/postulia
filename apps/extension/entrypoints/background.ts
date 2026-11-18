@@ -14,6 +14,7 @@ import {
 } from "~/lib/repository";
 import { getSettings, hasSession, updateSettings } from "~/lib/settings";
 import { syncNow } from "~/lib/sync";
+import { hydrateCvMetadata, hydrateUserSettings } from "~/lib/user-config";
 import type {
   BackgroundRequest,
   CapturePayload,
@@ -26,6 +27,19 @@ const SYNC_ALARM = "postulia:sync";
 const REMINDER_ALARM = "postulia:reminders";
 const DISCOVERY_ALARM = "postulia:discovery:alerts";
 const DISCOVERY_CLEANUP_ALARM = "postulia:discovery:cleanup";
+
+/**
+ * Carga desde el servidor las preferencias y el CV de la cuenta y después
+ * reprograma las alarmas, porque `syncEnabled` decide si se activa el sync.
+ */
+async function hydrateAndSchedule(): Promise<void> {
+  const settings = await getSettings();
+  if (hasSession(settings)) {
+    await hydrateUserSettings();
+    await hydrateCvMetadata();
+  }
+  await scheduleAlarms();
+}
 
 async function scheduleAlarms(): Promise<void> {
   const settings = await getSettings();
@@ -140,7 +154,7 @@ export default defineBackground(() => {
 
   browser.runtime.onInstalled.addListener((details) => {
     void sidePanel?.setPanelBehavior?.({ openPanelOnActionClick: true }).catch(() => undefined);
-    void scheduleAlarms();
+    void hydrateAndSchedule();
     if (details.reason === "install") {
       // Crea la fila de ajustes desde el primer arranque. Así la vista de
       // Ajustes no depende de que el usuario configure algo para cargar.
@@ -150,7 +164,7 @@ export default defineBackground(() => {
   });
 
   browser.runtime.onStartup?.addListener(() => {
-    void scheduleAlarms();
+    void hydrateAndSchedule();
   });
 
   browser.alarms.onAlarm.addListener((alarm) => {
@@ -320,9 +334,9 @@ export default defineBackground(() => {
     return true;
   });
 
-  /* Sincroniza al arrancar si hay sesión configurada. */
+  /* Hidrata la cuenta y sincroniza al arrancar si hay sesión configurada. */
   void (async () => {
-    await scheduleAlarms();
+    await hydrateAndSchedule();
     const settings = await getSettings();
     if (settings.syncEnabled && hasSession(settings)) {
       await syncNow();

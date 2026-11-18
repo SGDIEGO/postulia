@@ -905,12 +905,6 @@ export function SidePanelApp() {
 
               {postStage === "edit" && (
                 <>
-                  <p className="mb-2 text-[11px] text-slate-500">
-                    Copia el texto del post de LinkedIn y pégalo aquí. Detectaremos el correo
-                    automáticamente y Gemini redactará un borrador que podrás revisar antes de
-                    enviarlo.
-                  </p>
-
                   <textarea
                     value={postText}
                     onChange={(event) => handlePostTextChange(event.target.value)}
@@ -968,11 +962,6 @@ export function SidePanelApp() {
                     )}
                   </Button>
 
-                  <p className="mt-1 text-[10px] text-slate-400">
-                    No se envía nada todavía: primero verás el correo y podrás corregirlo. Se
-                    usará tu CV subido en Ajustes.
-                  </p>
-
                   {postResult && (
                     <p
                       className={cn(
@@ -996,24 +985,15 @@ export function SidePanelApp() {
                         <FaIcon icon={faCircleCheck} size={14} className="mt-0.5" />
                         {postResult?.message ?? "Correo enviado."}
                       </p>
-                      <p className="text-[11px] text-slate-500">
-                        El borrador revisado se envió con tu CV adjunto y el post quedó guardado.
-                      </p>
                       <Button size="sm" className="w-full" onClick={resetPostForm}>
                         <FaIcon icon={faRobot} size={14} /> Redactar otro correo
                       </Button>
                     </div>
                   ) : (
                     <div className="space-y-2">
-                      <div>
-                        <p className="text-sm font-semibold leading-tight text-slate-800">
-                          Revisa el correo antes de enviarlo
-                        </p>
-                        <p className="text-[11px] text-slate-500">
-                          Puedes corregir el destinatario, el asunto y el mensaje. Nada se envía
-                          hasta que pulses “Enviar correo”.
-                        </p>
-                      </div>
+                      <p className="text-sm font-semibold leading-tight text-slate-800">
+                        Revisa el correo antes de enviarlo
+                      </p>
 
                       <label className="block text-[11px] font-medium text-slate-600">
                         Destinatario
@@ -1103,10 +1083,6 @@ export function SidePanelApp() {
                           {postBusy ? "Regenerando…" : "Regenerar borrador"}
                         </button>
                       </div>
-
-                      <p className="text-[10px] text-slate-400">
-                        Se enviará con tu CV (PDF) adjunto desde el servidor de Postulia.
-                      </p>
                     </div>
                   )}
                 </>

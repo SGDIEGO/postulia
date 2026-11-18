@@ -6,7 +6,7 @@ import { getMeta, setMeta } from "./db";
  * usuarios: registro, login, CV, generación de correo con IA, etc.
  * Reemplaza este valor por la URL real de tu servidor desplegado.
  */
-export const BACKEND_URL = "http://localhost:3000";
+export const BACKEND_URL = "https://155-181-165-241.sslip.io";
 
 export interface PostuliaSettings {
   /** URL base de la API, por ejemplo https://api.postulia.tudominio.com */
