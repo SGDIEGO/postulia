@@ -2,9 +2,9 @@
 
 Extensión de Chrome + API propia para **registrar y dar seguimiento a postulaciones laborales**. Guarda una oferta desde LinkedIn, Computrabajo, Indeed y otros portales, y administra todo el proceso en un panel lateral o en un panel de control: estados, recordatorios, notas, etiquetas, estadísticas y exportación.
 
-Postulia es **local-first**: los datos viven en IndexedDB (Dexie) y la v0.1 no envía nada a ningún servidor. La API autoalojada sigue en el repositorio para despliegues propios, pero la extensión no la configura desde la interfaz. No hay servicios de terceros ni telemetría.
+Postulia es **local-first**: sin cuenta, los datos viven en IndexedDB (Dexie) y no salen del navegador. La v0.3 añade una cuenta opcional con verificación por correo que sincroniza postulaciones, recordatorios y CV con la API del proyecto, y permite generar correos con IA. No hay telemetría ni publicidad.
 
-> **v0.1** — No incluye postulación automática. Enviar solicitudes de forma masiva incumple los términos de los portales y no es el objetivo del proyecto.
+> **v0.3.0** — No incluye postulación automática. Enviar solicitudes de forma masiva incumple los términos de los portales y no es el objetivo del proyecto.
 
 ## Características
 
@@ -77,7 +77,7 @@ envíe las solicitudes del servidor Vite a la API.
 3. **Cargar descomprimida** y elige `apps/extension/.output/chrome-mv3` (o `chrome-mv3-dev` en modo dev).
 4. Abre el panel de Postulia. No hace falta configurar nada: la extensión arranca en modo local y guarda todo en el navegador.
 
-> La API autoalojada sigue incluida para desarrollo y despliegues propios, pero la v0.1 no expone su configuración en la interfaz.
+> La API apunta al servidor del proyecto, definido en `apps/extension/lib/settings.ts` (`BACKEND_URL`). Para despliegues propios, cambia ese valor y ajusta `docker/.env`.
 
 > Al cargar la extensión sin empaquetar, Chrome le asigna un id. Si quieres restringir CORS a esa extensión, copia el id y usa `CORS_ORIGINS=chrome-extension://<id>`.
 
@@ -101,15 +101,15 @@ La API usa un cliente Prisma falso en memoria para las pruebas de integración: 
 
 ### Sincronización
 
-- **Todo es local**: sin cuenta, sin envíos y con los datos en IndexedDB. La interfaz no pide servidor ni sesión.
-- La API autoalojada se mantiene en el repositorio para desarrollo y despliegues propios, pero la v0.1 no la configura desde la UI.
+- **Sin cuenta**: los datos viven en IndexedDB y la extensión no envía nada al servidor.
+- **Con cuenta**: tras confirmar el correo, `syncNow()` sube los cambios pendientes y baja los del servidor. Los ajustes de la cuenta (notificaciones, días de seguimiento, CV) también se sincronizan.
 - Cuando hay una API configurada en una compilación propia, `syncNow()` sube los cambios pendientes y baja los del servidor.
 - Los borrados son blandos (`deletedAt`) para poder restaurarlos desde la papelera.
 - Las alertas de búsqueda, los recordatorios y la limpieza del descubrimiento funcionan en local, sin sesión.
 
 ## Privacidad
 
-Postulia no incluye telemetría ni analítica y no opera un servidor propio. Ningún dato sale del navegador. Consulta la [política de privacidad](PRIVACY.md) para el detalle de datos, permisos, retención y borrado.
+Postulia no incluye telemetría ni analítica ni publicidad. Sin cuenta, ningún dato sale del navegador; con cuenta, los datos de tu búsqueda se sincronizan con el servidor del proyecto. Consulta la [política de privacidad](PRIVACY.md) para el detalle de datos, permisos, retención y borrado.
 
 ## Despliegue con Docker y HTTPS
 
