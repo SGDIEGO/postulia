@@ -182,8 +182,11 @@ un timeout para evitar que la interfaz quede esperando indefinidamente.
 
 - [`lib/api.ts`](../apps/extension/lib/api.ts): peticiones autenticadas,
   renovación de tokens y manejo de errores.
-- [`lib/auth.ts`](../apps/extension/lib/auth.ts): login, registro, logout y
-  persistencia de la sesión.
+- [`lib/auth.ts`](../apps/extension/lib/auth.ts): login, registro, logout,
+  persistencia de la sesión y verificación de correo (`checkVerification`,
+  `resendVerification`, `cancelVerification`). El registro no inicia sesión:
+  devuelve `{ status: "verification_required", verification }` hasta que el
+  usuario abre el enlace del correo.
 - [`lib/settings.ts`](../apps/extension/lib/settings.ts): URL de API, tokens,
   usuario y caché local de CV y preferencias.
 - [`lib/user-config.ts`](../apps/extension/lib/user-config.ts): hidrata desde
@@ -575,8 +578,16 @@ La API está en [`apps/api/`](../apps/api/). Usa Fastify, Prisma y PostgreSQL.
 - [`src/lib/tokens.ts`](../apps/api/src/lib/tokens.ts): refresh tokens.
 - [`src/lib/user-secrets.ts`](../apps/api/src/lib/user-secrets.ts): cifrado
   AES-256-GCM de la API key de IA por usuario.
-- [`src/routes/auth.ts`](../apps/api/src/routes/auth.ts): registro, login,
-  refresh, logout y usuario actual.
+- [`src/lib/mailer.ts`](../apps/api/src/lib/mailer.ts): **única** puerta de
+  salida de correo (transportador cacheado, `sendMail`, remitente y plantilla
+  de verificación).
+- [`src/lib/verification.ts`](../apps/api/src/lib/verification.ts): crea y
+  busca las verificaciones de correo, con hash de los dos tokens.
+- [`src/lib/verification-page.ts`](../apps/api/src/lib/verification-page.ts):
+  HTML en español que se abre al pulsar el enlace del correo.
+- [`src/routes/auth.ts`](../apps/api/src/routes/auth.ts): registro con
+  verificación de correo, confirmación, reenvío, login, refresh, logout y
+  usuario actual.
 - [`src/routes/applications.ts`](../apps/api/src/routes/applications.ts):
   postulaciones.
 - [`src/routes/sync.ts`](../apps/api/src/routes/sync.ts): sincronización
@@ -604,6 +615,8 @@ principales:
 - `ApplicationTag`
 - `UserCv`
 - `UserSettings`
+- `EmailVerification`: enlace de confirmación de correo (`token_hash`,
+  `client_hash`, `expires_at`, `verified_at`, `session_issued_at`)
 
 Los archivos de
 [`prisma/migrations/`](../apps/api/prisma/migrations/) contienen la evolución
@@ -689,13 +702,85 @@ siempre esa cuenta para enviar, y `from` es `SMTP_FROM` o, si falta,
 `SMTP_USER`. El usuario solo revisa y confirma el destinatario, el asunto y el
 cuerpo; el CV adjunto se toma de su propia fila en `user_cvs`.
 
+Todo el correo saliente pasa por `lib/mailer.ts`. Hoy lo usan dos flujos:
+
+1. la verificación de cuenta al registrarse;
+2. el envío de una postulación con el CV adjunto.
+
+Cualquier correo futuro (recordatorios, resúmenes, alertas) debe usar ese mismo
+módulo. `isMailConfigured(env)` decide si hay credenciales y `/health` informa
+`mail: "configured" | "unconfigured"`. Sin SMTP no se puede registrar y el
+envío de CV responde `503` con un mensaje para el administrador.
+
+Variables que afectan al correo y a la verificación:
+
+```env
+PUBLIC_URL=https://postulia.example.com   # base del enlace; vacío = se deduce del host
+EMAIL_VERIFICATION_TTL_MINUTES=30         # vida del enlace
+REQUIRE_EMAIL_VERIFICATION=true           # interruptor de despliegue
+```
+
+### Verificación de correo al registrarse
+
+El registro ya **no inicia sesión**. El flujo es:
+
+1. `POST /api/auth/register` crea la cuenta con `emailVerifiedAt = null` y
+   responde `201`:
+
+   ```json
+   {
+     "status": "verification_sent",
+     "email": "diego@example.com",
+     "verificationToken": "token-para-la-extensión",
+     "expiresAt": "2026-11-17T21:30:00.000Z",
+     "expiresInMinutes": 30
+   }
+   ```
+
+2. El servidor envía el correo con un botón que apunta a
+   `GET /api/auth/verify-email?token=…`. Ese token viaja solo en el correo y se
+   guarda hasheado (`token_hash`).
+3. La extensión guarda `pendingVerification` en Ajustes y sondea cada 5 s
+   `POST /api/auth/verify-email/status` con el otro token (`clientHash`), que
+   solo sirve para consultar el estado.
+4. Al abrir el enlace, la API marca `email_verified_at` y responde una página
+   HTML. La siguiente consulta de estado devuelve la sesión.
+5. `login` con una cuenta sin verificar responde `403` con
+   `error: "email_not_verified"` y `details: { email, verificationToken,
+   expiresAt }`, para que la extensión pueda seguir esperando sin pedir la
+   contraseña otra vez.
+
+Detalles de seguridad y uso:
+
+- el enlace es de un solo uso y caduca a los 30 minutos;
+- pedir otro correo invalida el anterior y tiene un enfriamiento de 60 s;
+- si un registro falla antes de enviar el correo, se puede repetir con el
+  mismo email (la cuenta sin verificar se reutiliza);
+- una cuenta ya verificada responde `409` al intentar registrarse de nuevo;
+- las cuentas que existían antes de esta funcionalidad se marcan como
+  verificadas en la migración (`email_verified_at = created_at`).
+
+### Interruptores de notificaciones
+
+Hay dos ajustes independientes en `user_settings`:
+
+| Ajuste | Qué controla |
+| --- | --- |
+| `notificationsEnabled` | Avisos locales del navegador (`browser.notifications`) |
+| `emailNotificationsEnabled` | Correos que envía el servidor: recordatorios, resúmenes y alertas |
+
+Los correos transaccionales quedan exentos: la confirmación de la cuenta y el
+envío de una postulación con el CV salen aunque `emailNotificationsEnabled`
+esté apagado.
+
 ### Preferencias de la cuenta
 
 Las preferencias que deben seguir al usuario entre equipos viven en el
 servidor, en la tabla `user_settings` (relación 1:1 con `users`):
 
 - `syncEnabled`
-- `notificationsEnabled`
+- `notificationsEnabled` (avisos del navegador)
+- `emailNotificationsEnabled` (correos del servidor)
 - `followUpDays`
 
 Se leen y escriben desde **Ajustes → Preferencias** con:
@@ -705,8 +790,8 @@ GET /api/users/settings
 PUT /api/users/settings
 ```
 
-El `GET` crea la fila con valores por defecto (`true`, `true`, `7`) si todavía
-no existe. El `PUT` acepta actualizaciones parciales y valida que
+El `GET` crea la fila con valores por defecto (`true`, `true`, `true`, `7`) si
+todavía no existe. El `PUT` acepta actualizaciones parciales y valida que
 `followUpDays` sea un entero entre 1 y 365. Ambos endpoints requieren sesión.
 
 Al iniciar sesión o registrar una cuenta, `lib/auth.ts` llama a
@@ -719,6 +804,8 @@ Siguen siendo locales al dispositivo, porque dependen de él o de su sesión:
 
 - `apiUrl`: sin ella el cliente no puede llegar al servidor.
 - `accessToken` y `refreshToken`: credenciales de la sesión.
+- `pendingVerification`: la cuenta que está esperando confirmar el correo; no
+  contiene credenciales de sesión.
 - `lastPulledAt`, `lastSyncAt` y `lastSyncError`: estado de sincronización.
 
 También necesita la configuración general:
