@@ -12,7 +12,7 @@ export default async function healthRoutes(app: FastifyInstance): Promise<void> 
       // El correo es informativo: la API funciona sin SMTP, pero el registro
       // y el envío de CV con adjunto no.
       mail: isMailConfigured(app.env) ? "configured" : "unconfigured",
-      version: process.env["npm_package_version"] ?? "0.1.0",
+      version: process.env["npm_package_version"] ?? "0.3.0",
       time: new Date().toISOString(),
     };
   });

@@ -19,7 +19,7 @@
     "@fortawesome/fontawesome-svg-core": "^7.3.1",
     "@fortawesome/free-solid-svg-icons": "^7.3.1",
     "@fortawesome/react-fontawesome": "^3.5.0",
-    "@postulia/shared": "0.1.0",
+    "@postulia/shared": "0.3.0",
     "canvas": "^3.2.3",
     "cheerio": "^1.2.0",
     "dexie": "^4.4.6",

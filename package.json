@@ -1,6 +1,6 @@
 {
   "name": "postulia",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "private": true,
   "description": "Postulia — seguimiento de postulaciones laborales: extensión de Chrome + API propia",
   "license": "MIT",

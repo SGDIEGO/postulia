@@ -1,6 +1,6 @@
 {
   "name": "@postulia/api",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "description": "API de Postulia: autenticación multiusuario, postulaciones y sincronización local-first",
@@ -23,7 +23,7 @@
     "@fastify/jwt": "^10.2.5",
     "@fastify/multipart": "^10.1.7",
     "@fastify/rate-limit": "^11.2.1",
-    "@postulia/shared": "0.1.0",
+    "@postulia/shared": "0.3.0",
     "@prisma/client": "6.19.3",
     "@types/nodemailer": "^8.0.2",
     "fastify": "^5.12.7",
