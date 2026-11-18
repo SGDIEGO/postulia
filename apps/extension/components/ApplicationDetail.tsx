@@ -124,18 +124,18 @@ export function ApplicationDetail({
   return (
     <Overlay onClose={onClose}>
       <div className="flex h-full flex-col">
-        <header className="flex items-start justify-between gap-3 border-b border-slate-200 px-5 py-4">
+        <header className="flex items-start justify-between gap-3 border-b border-line px-5 py-4">
           <div className="min-w-0">
-            <h2 className="truncate text-base font-semibold text-slate-900">
+            <h2 className="truncate text-base font-semibold text-ink">
               {application.jobTitle}
             </h2>
-            <p className="truncate text-sm text-slate-500">
+            <p className="truncate text-sm text-ink-muted">
               {application.company}
               {application.location ? ` · ${application.location}` : ""}
             </p>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <StatusBadge status={application.status} />
-              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
+              <span className="rounded-full bg-surface-sunken px-2 py-0.5 text-xs text-ink-soft">
                 {SOURCE_LABELS[application.source]}
               </span>
               {application.url && (
@@ -168,7 +168,7 @@ export function ApplicationDetail({
                 onChange={(event) =>
                   void changeStatus(application.id, event.target.value as ApplicationStatus)
                 }
-                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+                className="w-full rounded-lg border border-line-strong bg-white px-3 py-2 text-sm"
               >
                 {APPLICATION_STATUSES.map((status) => (
                   <option key={status} value={status}>
@@ -215,7 +215,7 @@ export function ApplicationDetail({
               {application.tags.map((tag) => (
                 <span
                   key={tag}
-                  className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600"
+                  className="rounded-full bg-surface-sunken px-2 py-0.5 text-xs text-ink-soft"
                 >
                   #{tag}
                 </span>
@@ -225,7 +225,7 @@ export function ApplicationDetail({
 
           <section>
             <div className="mb-1 flex items-center justify-between">
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
                 Notas
               </h3>
               <Button
@@ -246,7 +246,7 @@ export function ApplicationDetail({
           </section>
 
           <section>
-            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-muted">
               Recordatorios
             </h3>
             <div className="mb-2 flex flex-wrap items-end gap-2">
@@ -270,7 +270,7 @@ export function ApplicationDetail({
             </div>
 
             {reminders.length === 0 ? (
-              <p className="text-xs text-slate-400">Sin recordatorios para esta postulación.</p>
+              <p className="text-xs text-ink-subtle">Sin recordatorios para esta postulación.</p>
             ) : (
               <ul className="space-y-1">
                 {reminders.map((reminder) => {
@@ -281,10 +281,10 @@ export function ApplicationDetail({
                       className={cn(
                         "flex items-center justify-between gap-2 rounded-lg border px-2.5 py-1.5 text-xs",
                         reminder.done
-                          ? "border-slate-200 bg-slate-50 text-slate-400 line-through"
+                          ? "border-line bg-surface-muted text-ink-subtle line-through"
                           : overdue
                             ? "border-rose-200 bg-rose-50 text-rose-700"
-                            : "border-slate-200 bg-white text-slate-600",
+                            : "border-line bg-white text-ink-soft",
                       )}
                     >
                       <button
@@ -297,7 +297,7 @@ export function ApplicationDetail({
                             "h-3.5 w-3.5 rounded border",
                             reminder.done
                               ? "border-emerald-500 bg-emerald-500"
-                              : "border-slate-300 bg-white",
+                              : "border-line-strong bg-white",
                           )}
                         />
                         <span>
@@ -322,7 +322,7 @@ export function ApplicationDetail({
           </section>
 
           <section>
-            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-muted">
               Historial
             </h3>
             <div className="mb-2 flex gap-2">
@@ -339,17 +339,17 @@ export function ApplicationDetail({
               </Button>
             </div>
 
-            <ol className="space-y-2 border-l border-slate-200 pl-4">
+            <ol className="space-y-2 border-l border-line pl-4">
               {events.map((event) => (
                 <li key={event.id} className="relative text-xs">
                   <span
                     className="absolute -left-[21px] top-1 h-2.5 w-2.5 rounded-full ring-2 ring-white"
                     style={{ backgroundColor: EVENT_COLORS[event.type] }}
                   />
-                  <p className="font-medium text-slate-700">
+                  <p className="font-medium text-ink-soft">
                     {EVENT_TYPE_LABELS[event.type]}
                     {event.fromStatus && event.toStatus && (
-                      <span className="inline-flex items-center gap-1 font-normal text-slate-500">
+                      <span className="inline-flex items-center gap-1 font-normal text-ink-muted">
                         <span>·</span>
                         <span>{STATUS_LABELS[event.fromStatus]}</span>
                         <FaIcon icon={faArrowRight} size={9} />
@@ -357,8 +357,8 @@ export function ApplicationDetail({
                       </span>
                     )}
                   </p>
-                  {event.message && <p className="text-slate-600">{event.message}</p>}
-                  <p className="text-slate-400" title={formatDateTimeEs(event.occurredAt)}>
+                  {event.message && <p className="text-ink-soft">{event.message}</p>}
+                  <p className="text-ink-subtle" title={formatDateTimeEs(event.occurredAt)}>
                     {relativeTimeEs(event.occurredAt)} · {formatDateTimeEs(event.occurredAt)}
                   </p>
                 </li>
@@ -367,7 +367,7 @@ export function ApplicationDetail({
           </section>
         </div>
 
-        <footer className="flex items-center justify-between border-t border-slate-200 px-5 py-3">
+        <footer className="flex items-center justify-between border-t border-line px-5 py-3">
           <Button variant="ghost" size="sm" onClick={() => void handleDelete()}>
             Eliminar postulación
           </Button>
@@ -400,9 +400,9 @@ function Overlay({ children, onClose }: { children: React.ReactNode; onClose: ()
 
 function Meta({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg bg-slate-50 px-2 py-1.5">
-      <p className="text-[10px] font-medium uppercase tracking-wide text-slate-400">{label}</p>
-      <p className="truncate text-slate-700">{value}</p>
+    <div className="rounded-lg bg-surface-muted px-2 py-1.5">
+      <p className="text-label font-medium uppercase tracking-wide text-ink-subtle">{label}</p>
+      <p className="truncate text-ink-soft">{value}</p>
     </div>
   );
 }

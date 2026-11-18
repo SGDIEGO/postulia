@@ -18,7 +18,23 @@ describe("resolveSettings", () => {
     expect(resolved.followUpDays).toBe(14);
     expect(resolved.syncEnabled).toBe(DEFAULT_SETTINGS.syncEnabled);
     expect(resolved.notificationsEnabled).toBe(DEFAULT_SETTINGS.notificationsEnabled);
+    expect(resolved.emailNotificationsEnabled).toBe(DEFAULT_SETTINGS.emailNotificationsEnabled);
+    expect(resolved.pendingVerification).toBeNull();
     expect(resolved.user).toBeNull();
+  });
+
+  it("conserva una verificación pendiente entre recargas", () => {
+    const pendingVerification = {
+      email: "diego@example.com",
+      verificationToken: "token-de-prueba",
+      expiresAt: new Date(Date.now() + 30 * 60_000).toISOString(),
+    };
+
+    const resolved = resolveSettings({ pendingVerification });
+    expect(resolved.pendingVerification).toEqual(pendingVerification);
+    // Sigue sin haber sesión: el registro no inicia sesión hasta confirmar.
+    expect(resolved.accessToken).toBeNull();
+    expect(resolved.refreshToken).toBeNull();
   });
 
   it("nunca devuelve null, para que Ajustes no se quede cargando", () => {

@@ -17,7 +17,7 @@ import { formatDateTimeEs } from "@postulia/shared";
 import { ApplicationDetail } from "~/components/ApplicationDetail";
 import { ApplicationForm } from "~/components/ApplicationForm";
 import { FaIcon } from "~/components/FaIcon";
-import { Button, cn } from "~/components/ui";
+import { Button, IconButton, cn } from "~/components/ui";
 import { useExtensionStatus } from "~/lib/hooks";
 import { Overview } from "./views/Overview";
 import { ApplicationsView } from "./views/ApplicationsView";
@@ -36,35 +36,76 @@ const NAV: { id: Tab; label: string; icon: IconDefinition }[] = [
   { id: "settings", label: "Ajustes", icon: faGear },
 ];
 
+/** Título y subtítulo de cada vista, en un solo sitio. */
+const VIEW_META: Record<Tab, { title: string; description: string }> = {
+  overview: {
+    title: "Resumen",
+    description: "Tu proceso de búsqueda de empleo en un vistazo",
+  },
+  applications: {
+    title: "Postulaciones",
+    description: "Historial completo, búsqueda y filtros",
+  },
+  kanban: {
+    title: "Kanban",
+    description: "Mueve las postulaciones entre etapas",
+  },
+  reminders: {
+    title: "Recordatorios",
+    description: "Seguimientos pendientes y vencidos",
+  },
+  settings: {
+    title: "Ajustes",
+    description: "Cuenta, datos, papelera y acerca de",
+  },
+};
+
 const SIDEBAR_WIDTH_EXPANDED = 240; // w-60
-const SIDEBAR_WIDTH_COLLAPSED = 56; // w-14
+const SIDEBAR_WIDTH_COLLAPSED = 64; // w-16: deja respirar los iconos
+/** Por debajo de este ancho el panel no cabe con la barra desplegada. */
+const AUTO_COLLAPSE_BREAKPOINT = 960;
 
 export function DashboardApp() {
   const [tab, setTab] = useState<Tab>("overview");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarPreference, setSidebarPreference] = useState<boolean | null>(null);
   const { status, refresh, syncing, syncNow } = useExtensionStatus();
 
-  // Cargar preferencia de sidebar colapsado
+  // Preferencia guardada del usuario. `null` = todavía no decidió, así que
+  // mandan las reglas automáticas.
   useEffect(() => {
     if (typeof browser !== "undefined" && browser.storage?.sync) {
       browser.storage.sync.get(["sidebarCollapsed"], (result: { sidebarCollapsed?: boolean }) => {
         if (result.sidebarCollapsed !== undefined) {
+          setSidebarPreference(result.sidebarCollapsed);
           setSidebarCollapsed(result.sidebarCollapsed);
         }
       });
     }
   }, []);
 
-  // Guardar preferencia
-  const toggleSidebar = () => {
+  // En ventanas estrechas la barra se contrae sola: es una extensión y suele
+  // abrirse en una pestaña pequeña.
+  useEffect(() => {
+    if (sidebarPreference !== null) return;
+
+    const media = window.matchMedia(`(max-width: ${AUTO_COLLAPSE_BREAKPOINT}px)`);
+    const apply = () => setSidebarCollapsed(media.matches);
+    apply();
+    media.addEventListener("change", apply);
+    return () => media.removeEventListener("change", apply);
+  }, [sidebarPreference]);
+
+  function toggleSidebar() {
     const next = !sidebarCollapsed;
     setSidebarCollapsed(next);
+    setSidebarPreference(next);
     if (typeof browser !== "undefined" && browser.storage?.sync) {
       browser.storage.sync.set({ sidebarCollapsed: next });
     }
-  };
+  }
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -80,63 +121,82 @@ export function DashboardApp() {
   const localOnly = Boolean(status) && !status?.apiUrl;
   const statusLoaded = Boolean(status);
   const sidebarWidth = sidebarCollapsed ? SIDEBAR_WIDTH_COLLAPSED : SIDEBAR_WIDTH_EXPANDED;
+  const meta = VIEW_META[tab];
 
   return (
-    <div className="flex min-h-screen bg-slate-50">
+    <div className="flex min-h-screen bg-surface-muted text-ink">
       <aside
-        className="flex shrink-0 flex-col border-r border-slate-200 bg-white transition-all duration-200 ease-in-out"
+        className="flex shrink-0 flex-col border-r border-line bg-surface transition-all duration-200 ease-in-out"
         style={{ width: sidebarWidth }}
       >
-        <div className="flex items-center justify-between px-3 py-4">
-          {!sidebarCollapsed && (
-            <div className="flex items-center gap-2 min-w-0 flex-1">
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-600 text-white">
-                <FaIcon icon={faBriefcase} size={18} />
-              </span>
-              <div className="min-w-0">
-                <p className="text-sm font-bold tracking-tight text-slate-900 truncate">Postulia</p>
-                <p className="text-[11px] text-slate-500 truncate">Seguimiento de postulaciones</p>
+        <div className="flex items-center justify-between gap-2 px-3 py-4">
+          {sidebarCollapsed ? (
+            <span className="mx-auto flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-600 text-white">
+              <FaIcon icon={faBriefcase} size={18} />
+            </span>
+          ) : (
+            <>
+              <div className="flex min-w-0 flex-1 items-center gap-2">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-600 text-white">
+                  <FaIcon icon={faBriefcase} size={18} />
+                </span>
+                <div className="min-w-0">
+                  <p className="truncate text-title font-bold tracking-tight text-ink">Postulia</p>
+                  <p className="truncate text-label text-ink-muted">
+                    Seguimiento de postulaciones
+                  </p>
+                </div>
               </div>
-            </div>
+              <IconButton
+                label="Contraer barra lateral"
+                icon={faChevronLeft}
+                onClick={toggleSidebar}
+              />
+            </>
           )}
-          <button
-            type="button"
-            onClick={toggleSidebar}
-            className={cn(
-              "rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 transition-transform duration-200",
-              sidebarCollapsed && "rotate-180",
-            )}
-            title={sidebarCollapsed ? "Expandir barra lateral" : "Contraer barra lateral"}
-            aria-label={sidebarCollapsed ? "Expandir barra lateral" : "Contraer barra lateral"}
-          >
-            <FaIcon icon={sidebarCollapsed ? faChevronRight : faChevronLeft} size={16} />
-          </button>
         </div>
 
-        <nav className="flex-1 space-y-1 px-2" style={{ overflow: "hidden" }}>
+        {sidebarCollapsed && (
+          <div className="mb-1 flex justify-center">
+            <IconButton label="Expandir barra lateral" icon={faChevronRight} onClick={toggleSidebar} />
+          </div>
+        )}
+
+        <nav className="flex-1 space-y-1 overflow-hidden px-2" aria-label="Secciones">
           {NAV.map((item) => {
             const active = tab === item.id;
+            const overdue = status?.reminders.overdue ?? 0;
             return (
               <button
                 key={item.id}
                 type="button"
                 onClick={() => setTab(item.id)}
+                aria-current={active ? "page" : undefined}
                 className={cn(
-                  "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                  "flex min-h-9 w-full items-center gap-3 rounded-control px-3 py-2 text-title font-medium transition-colors",
                   active
                     ? "bg-brand-50 text-brand-700"
-                    : "text-slate-600 hover:bg-slate-50 hover:text-slate-900",
+                    : "text-ink-soft hover:bg-surface-sunken hover:text-ink",
+                  sidebarCollapsed && "justify-center px-0",
                 )}
-                style={{ justifyContent: sidebarCollapsed ? "center" : "flex-start" }}
                 title={sidebarCollapsed ? item.label : undefined}
               >
-                <FaIcon icon={item.icon} size={18} />
+                <span className="relative">
+                  <FaIcon icon={item.icon} size={18} />
+                  {sidebarCollapsed && item.id === "reminders" && overdue > 0 && (
+                    <span
+                      className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-danger ring-2 ring-surface"
+                      aria-hidden="true"
+                    />
+                  )}
+                </span>
                 {!sidebarCollapsed && (
                   <>
                     <span className="truncate">{item.label}</span>
-                    {item.id === "reminders" && (status?.reminders.overdue ?? 0) > 0 && (
-                      <span className="ml-auto rounded-full bg-rose-100 px-1.5 text-[10px] font-semibold text-rose-700">
-                        {status?.reminders.overdue}
+                    {item.id === "reminders" && overdue > 0 && (
+                      <span className="ml-auto rounded-full bg-danger-soft px-1.5 text-label font-semibold text-danger">
+                        {overdue}
+                        <span className="sr-only"> recordatorios vencidos</span>
                       </span>
                     )}
                   </>
@@ -147,9 +207,9 @@ export function DashboardApp() {
         </nav>
 
         {!sidebarCollapsed && statusLoaded && !localOnly && (
-          <div className="border-t border-slate-200 p-3">
-            <div className="rounded-lg bg-slate-50 p-3 text-xs text-slate-500">
-              <p className="flex items-center justify-between font-medium text-slate-600">
+          <div className="border-t border-line p-3">
+            <div className="rounded-control bg-surface-muted p-3 text-label text-ink-muted">
+              <p className="flex items-center justify-between font-medium text-ink-soft">
                 <span>Servidor</span>
                 <span
                   className={cn(
@@ -158,7 +218,7 @@ export function DashboardApp() {
                       ? "bg-rose-500"
                       : status?.loggedIn
                         ? "bg-emerald-500"
-                        : "bg-slate-300",
+                        : "bg-line-strong",
                   )}
                   title={status?.lastSyncError ?? (status?.loggedIn ? "Conectado" : "Sin sesión")}
                 />
@@ -169,15 +229,13 @@ export function DashboardApp() {
                   ? `${pending} ${pending === 1 ? "cambio pendiente" : "cambios pendientes"}`
                   : "Todo sincronizado"}
               </p>
-              <p className="mt-0.5 text-[11px] text-slate-400">
+              <p className="mt-0.5 text-label text-ink-subtle">
                 {status?.lastSyncAt
                   ? `Última sincronización: ${formatDateTimeEs(status.lastSyncAt)}`
                   : "—"}
               </p>
               {status?.lastSyncError && (
-                <p className="mt-1 line-clamp-2 text-[11px] text-rose-600">
-                  {status.lastSyncError}
-                </p>
+                <p className="mt-1 line-clamp-2 text-label text-danger">{status.lastSyncError}</p>
               )}
             </div>
           </div>
@@ -185,18 +243,10 @@ export function DashboardApp() {
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center justify-between gap-3 border-b border-slate-200 bg-white px-6 py-3">
-          <div>
-            <h1 className="text-base font-semibold text-slate-900">
-              {NAV.find((item) => item.id === tab)?.label}
-            </h1>
-            <p className="text-xs text-slate-500">
-              {tab === "overview" && "Tu proceso de búsqueda de empleo en un vistazo"}
-              {tab === "applications" && "Historial completo, búsqueda y filtros"}
-              {tab === "kanban" && "Mueve las postulaciones entre etapas"}
-              {tab === "reminders" && "Seguimientos pendientes y vencidos"}
-              {tab === "settings" && "Datos, papelera y acerca de"}
-            </p>
+        <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line bg-surface px-6 py-3">
+          <div className="min-w-0">
+            <h1 className="text-base font-semibold text-ink">{meta.title}</h1>
+            <p className="text-label text-ink-muted">{meta.description}</p>
           </div>
 
           <div className="flex items-center gap-2">
@@ -205,20 +255,19 @@ export function DashboardApp() {
                 size="sm"
                 variant="secondary"
                 onClick={() => void syncNow()}
-                disabled={syncing}
+                loading={syncing}
                 title="Sincronizar ahora"
               >
-                <FaIcon
-                  icon={faArrowsRotate}
-                  size={14}
-                  className={syncing ? "animate-spin" : undefined}
-                />
+                {!syncing && <FaIcon icon={faArrowsRotate} size={14} />}
                 {syncing ? "Sincronizando…" : "Sincronizar"}
               </Button>
             )}
-            <Button size="sm" onClick={() => setCreating(true)}>
-              <FaIcon icon={faPlus} size={14} /> Nueva postulación
-            </Button>
+            {/* En Ajustes no tiene sentido crear postulaciones. */}
+            {tab !== "settings" && (
+              <Button size="sm" onClick={() => setCreating(true)}>
+                <FaIcon icon={faPlus} size={14} /> Nueva postulación
+              </Button>
+            )}
           </div>
         </header>
 

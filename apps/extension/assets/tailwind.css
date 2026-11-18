@@ -4,7 +4,13 @@
 @source "../components";
 @source "../lib";
 
+/*
+ * Tokens de diseño. Toda la interfaz debe usar estas variables (a través de
+ * las utilidades de Tailwind) en lugar de colores sueltos, para que el día que
+ * activemos el tema oscuro solo haya que redefinir el bloque [data-theme].
+ */
 @theme {
+  /* Marca */
   --color-brand-50: #eef4ff;
   --color-brand-100: #d9e5ff;
   --color-brand-200: #bcd0ff;
@@ -15,6 +21,61 @@
   --color-brand-700: #1b34b9;
   --color-brand-800: #1b2f93;
   --color-brand-900: #1b2d74;
+
+  /* Superficies y bordes */
+  --color-surface: #ffffff;
+  --color-surface-muted: #f8fafc;
+  --color-surface-sunken: #f1f5f9;
+  --color-line: #e2e8f0;
+  --color-line-strong: #cbd5e1;
+
+  /* Texto */
+  --color-ink: #0f172a;
+  --color-ink-soft: #334155;
+  --color-ink-muted: #64748b;
+  --color-ink-subtle: #94a3b8;
+
+  /* Estados */
+  --color-success: #059669;
+  --color-success-soft: #ecfdf5;
+  --color-warning: #b45309;
+  --color-warning-soft: #fffbeb;
+  --color-danger: #be123c;
+  --color-danger-soft: #fff1f2;
+  --color-info: #0369a1;
+  --color-info-soft: #f0f9ff;
+
+  /* Formas */
+  --radius-control: 0.5rem;
+  --radius-card: 0.75rem;
+  --shadow-card: 0 1px 2px 0 rgb(15 23 42 / 0.04), 0 1px 3px 0 rgb(15 23 42 / 0.06);
+  --shadow-pop: 0 18px 40px -24px rgb(15 23 42 / 0.35), 0 2px 8px -4px rgb(15 23 42 / 0.12);
+
+  /* Escala tipográfica: nunca por debajo de 12px */
+  --text-label: 0.75rem;
+  --text-label--line-height: 1rem;
+  --text-body: 0.8125rem;
+  --text-body--line-height: 1.15rem;
+  --text-title: 0.875rem;
+  --text-title--line-height: 1.25rem;
+}
+
+/*
+ * Tema oscuro preparado pero inactivo: solo se aplica si alguien añade
+ * data-theme="dark" al <html>. Sirve para comprobar que los tokens cubren
+ * toda la interfaz cuando decidamos activarlo.
+ */
+[data-theme="dark"] {
+  color-scheme: dark;
+  --color-surface: #0f172a;
+  --color-surface-muted: #0b1220;
+  --color-surface-sunken: #16213a;
+  --color-line: #24324d;
+  --color-line-strong: #33425f;
+  --color-ink: #e2e8f0;
+  --color-ink-soft: #cbd5e1;
+  --color-ink-muted: #94a3b8;
+  --color-ink-subtle: #7b8aa3;
 }
 
 html,
@@ -23,7 +84,7 @@ body {
 }
 
 body {
-  @apply bg-slate-50 text-slate-900 antialiased;
+  @apply bg-surface-muted text-ink antialiased;
   font-family:
     ui-sans-serif,
     system-ui,
@@ -33,14 +94,42 @@ body {
     sans-serif;
 }
 
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  /* Un solo anillo de foco para toda la interfaz. */
+  *:focus-visible {
+    outline: 2px solid var(--color-brand-600);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background: var(--color-brand-100);
+    color: var(--color-brand-900);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
 }
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: var(--color-line-strong);
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: var(--color-ink-subtle);
 }

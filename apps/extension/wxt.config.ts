@@ -16,7 +16,7 @@ export default defineConfig({
     short_name: "Postulia",
     description:
       "Guarda ofertas de LinkedIn, Computrabajo e Indeed y organiza tus postulaciones con kanban, recordatorios y estadísticas.",
-    version: "0.2.0",
+    version: "0.3.0",
     // `sidePanel.open()` y `setPanelBehavior()` requieren Chrome 116+.
     minimum_chrome_version: "116",
     icons: {

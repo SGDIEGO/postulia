@@ -4,18 +4,40 @@ import {
   faArrowsRotate,
   faCloud,
   faDownload,
+  faEnvelope,
   faFloppyDisk,
+  faPaperPlane,
   faRobot,
   faRightFromBracket,
-  faServer,
   faSliders,
   faUpload,
   faUser,
 } from "@fortawesome/free-solid-svg-icons";
 import { formatDateTimeEs, type UserSettings } from "@postulia/shared";
 import { FaIcon } from "~/components/FaIcon";
-import { Button, Card, Field, Input, Select, Spinner, Toggle, cn } from "~/components/ui";
-import { login, logout, register, ensureApiPermission } from "~/lib/auth";
+import {
+  Badge,
+  Button,
+  Card,
+  Field,
+  Input,
+  Segmented,
+  Select,
+  Spinner,
+  Toggle,
+  cn,
+} from "~/components/ui";
+import { useToast } from "~/components/Toast";
+import {
+  cancelVerification,
+  checkVerification,
+  ensureApiPermission,
+  login,
+  logout,
+  register,
+  resendVerification,
+  type AuthOutcome,
+} from "~/lib/auth";
 import { pingServer } from "~/lib/api";
 import { apiRequest } from "~/lib/api";
 import { db, type LocalApplication } from "~/lib/db";
@@ -34,8 +56,18 @@ interface GeminiModelOption {
   description: string;
 }
 
+/** Texto de la cuenta atrás del enlace de confirmación. */
+function remainingLabel(expiresAt: string, now: number): string {
+  const diff = new Date(expiresAt).getTime() - now;
+  if (diff <= 0) return "Enlace caducado";
+  const minutes = Math.floor(diff / 60_000);
+  const seconds = Math.floor((diff % 60_000) / 1000);
+  return `Caduca en ${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
 export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void }) {
   const settings = useSettingsRow();
+  const toast = useToast();
   const { status, syncNow: syncFromStatus, syncing } = useExtensionStatus();
 
   const [apiUrl, setApiUrl] = useState("");
@@ -56,6 +88,9 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
+  const [tick, setTick] = useState(Date.now());
+  const [verificationBusy, setVerificationBusy] = useState(false);
+  const [resendAvailableAt, setResendAvailableAt] = useState(0);
 
   const deleted = useLiveQuery(
     async () => db.applications.filter((application) => Boolean(application.deletedAt)).toArray(),
@@ -88,6 +123,135 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
       await loadIAModels();
     })();
   }, [accessToken]);
+
+  const pending = settings?.pendingVerification ?? null;
+
+  // Cualquier mensaje de éxito existente se muestra como aviso flotante.
+  useEffect(() => {
+    if (!info) return;
+    toast({ title: info, tone: "success" });
+    setInfo(null);
+  }, [info, toast]);
+
+  // Cuenta atrás del enlace de confirmación.
+  useEffect(() => {
+    if (!pending) return;
+    const timer = setInterval(() => setTick(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [pending?.verificationToken]);
+
+  // Sondeo del estado: en cuanto se abre el enlace del correo, la sesión
+  // entra sola sin volver a escribir la contraseña.
+  useEffect(() => {
+    if (!pending) return;
+    let alive = true;
+
+    const poll = async () => {
+      const result = await checkVerification().catch(() => null);
+      if (!alive || !result) return;
+      if (result.status === "verified") {
+        toast({
+          title: "Correo confirmado",
+          description: `Sesión iniciada como ${result.user.email}.`,
+          tone: "success",
+        });
+        setPassword("");
+        rescheduleAlarms();
+        onRefreshStatus();
+        void syncNow().then(() => onRefreshStatus());
+      } else if (result.status === "verified_no_session") {
+        toast({
+          title: "Correo confirmado",
+          description: "Ya puedes iniciar sesión con tu correo y contraseña.",
+          tone: "success",
+        });
+        setMode("login");
+      }
+    };
+
+    void poll();
+    const timer = setInterval(() => void poll(), 5000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, [pending?.verificationToken]);
+
+  async function refreshVerification(manual = false): Promise<void> {
+    if (manual) setVerificationBusy(true);
+    try {
+      const result = await checkVerification();
+      if (result.status === "verified") {
+        toast({
+          title: "Correo confirmado",
+          description: `Sesión iniciada como ${result.user.email}.`,
+          tone: "success",
+        });
+        rescheduleAlarms();
+        onRefreshStatus();
+      } else if (result.status === "verified_no_session") {
+        toast({ title: "Correo confirmado", description: "Inicia sesión.", tone: "success" });
+        setMode("login");
+      } else if (result.status === "pending") {
+        if (manual) {
+          toast({
+            title: "Todavía no está confirmado",
+            description: "Abre el enlace del correo y vuelve a intentarlo.",
+            tone: "warning",
+          });
+        }
+      } else if (result.status === "expired") {
+        if (manual) {
+          toast({
+            title: "El enlace caducó",
+            description: "Pide un correo nuevo con «Reenviar».",
+            tone: "warning",
+          });
+        }
+      } else if (manual) {
+        toast({
+          title: "No hay una verificación activa",
+          description: "Vuelve a crear la cuenta.",
+          tone: "error",
+        });
+      }
+    } catch (checkError) {
+      if (manual) {
+        toast({
+          title: "No se pudo comprobar",
+          description: checkError instanceof Error ? checkError.message : undefined,
+          tone: "error",
+        });
+      }
+    } finally {
+      if (manual) setVerificationBusy(false);
+    }
+  }
+
+  async function resendEmail(): Promise<void> {
+    setVerificationBusy(true);
+    try {
+      const updated = await resendVerification();
+      setResendAvailableAt(Date.now() + 60_000);
+      if (!updated) {
+        toast({ title: "Tu correo ya estaba confirmado", tone: "success" });
+        return;
+      }
+      toast({
+        title: "Correo reenviado",
+        description: `Revisa la bandeja de ${updated.email}.`,
+        tone: "success",
+      });
+    } catch (resendError) {
+      toast({
+        title: "No se pudo reenviar",
+        description: resendError instanceof Error ? resendError.message : undefined,
+        tone: "error",
+      });
+    } finally {
+      setVerificationBusy(false);
+    }
+  }
 
   async function loadIAConfig() {
     try {
@@ -138,43 +302,6 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
   /** Reprograma las alarmas tras cambiar la sesión o la sincronización. */
   function rescheduleAlarms(): void {
     void sendMessage({ type: "postulia:alarms:reschedule" }).catch(() => undefined);
-  }
-
-  async function saveServer() {
-    setBusy("server");
-    setError(null);
-    setInfo(null);
-    const normalized = normalizeApiUrl(apiUrl);
-
-    try {
-      if (!normalized) {
-        await updateSettings({ apiUrl: "" });
-        rescheduleAlarms();
-        setInfo("URL del servidor borrada. La app seguirá funcionando en local.");
-        return;
-      }
-
-      const granted = await ensureApiPermission(normalized);
-      if (!granted) {
-        setError(
-          "Chrome no dio permiso para acceder a ese dominio. Acepta el permiso para sincronizar.",
-        );
-        return;
-      }
-
-      const health = await pingServer(normalized);
-      await updateSettings({ apiUrl: normalized });
-      setApiUrl(normalized);
-      rescheduleAlarms();
-      setInfo(
-        health.ok
-          ? `Conexión correcta${health.database === "down" ? " (la base de datos del servidor no responde)" : ""}.`
-          : "No se pudo verificar el servidor. Revisa la URL y que la API esté desplegada.",
-      );
-      onRefreshStatus();
-    } finally {
-      setBusy(null);
-    }
   }
 
   async function saveIAConfig() {
@@ -269,6 +396,7 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
     const previous: UserSettings = {
       syncEnabled: settings.syncEnabled,
       notificationsEnabled: settings.notificationsEnabled,
+      emailNotificationsEnabled: settings.emailNotificationsEnabled,
       followUpDays: settings.followUpDays,
     };
 
@@ -304,35 +432,44 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
   async function submitAuth() {
     setBusy("auth");
     setError(null);
-    setInfo(null);
     const normalized = normalizeApiUrl(apiUrl);
 
     try {
       if (!normalized) {
-        setError("Primero configura y guarda la URL del servidor.");
+        setError("No hay una URL de servidor configurada en esta copia de la extensión.");
         return;
       }
 
       const granted = await ensureApiPermission(normalized);
       if (!granted) {
-        setError("Falta el permiso para acceder al servidor.");
+        setError("Falta el permiso para acceder al servidor. Acepta el aviso de Chrome.");
         return;
       }
       await updateSettings({ apiUrl: normalized });
 
-      if (mode === "login") {
-        await login({ email: email.trim(), password });
-        setInfo("Sesión iniciada. Ya puedes sincronizar.");
-      } else {
-        await register({
-          email: email.trim(),
-          password,
-          ...(name.trim() ? { name: name.trim() } : {}),
-        });
-        setInfo("Cuenta creada y sesión iniciada.");
-      }
+      const outcome: AuthOutcome =
+        mode === "login"
+          ? await login({ email: email.trim(), password })
+          : await register({
+              email: email.trim(),
+              password,
+              ...(name.trim() ? { name: name.trim() } : {}),
+            });
 
       setPassword("");
+
+      if (outcome.status === "verification_required") {
+        setResendAvailableAt(Date.now() + 60_000);
+        toast({
+          title: "Revisa tu correo",
+          description: `Te enviamos un enlace a ${outcome.verification.email}. Caduca en 30 minutos.`,
+          tone: "info",
+          duration: 7000,
+        });
+        return;
+      }
+
+      toast({ title: "Sesión iniciada", tone: "success" });
       rescheduleAlarms();
       onRefreshStatus();
       void syncNow().then(() => onRefreshStatus());
@@ -407,7 +544,7 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
           {settings.apiUrl && settings.accessToken ? (
             <Card
               title="IA y correo"
-              actions={<FaIcon icon={faRobot} size={16} className="text-slate-400" />}
+              actions={<FaIcon icon={faRobot} size={16} className="text-ink-subtle" />}
             >
               <div className="space-y-3">
                 <Field label="Proveedor de IA">
@@ -431,7 +568,7 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
                 </Field>
 
                 <div>
-                  <span className="mb-1 block text-xs font-medium text-slate-500">
+                  <span className="mb-1 block text-label font-medium text-ink-muted">
                     Modelo de Gemini
                   </span>
                   <div className="flex items-center gap-2">
@@ -468,14 +605,14 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
                 </div>
 
                 {iaModelsError ? (
-                  <p className="rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">
+                  <p className="rounded-lg bg-rose-50 px-3 py-2 text-label text-rose-700">
                     {iaModelsError}
                   </p>
                 ) : null}
 
                 <p
                   className={cn(
-                    "rounded-lg px-3 py-2 text-xs",
+                    "rounded-lg px-3 py-2 text-label",
                     iaConfigured ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700",
                   )}
                 >
@@ -490,7 +627,7 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
 
                 <div className="border-t border-slate-100 pt-3 space-y-3">
                   <Field label="CV (PDF - subir una vez)">
-                    <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-xs text-slate-500 hover:border-brand-400">
+                    <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-line-strong bg-surface-muted px-3 py-2 text-label text-ink-muted hover:border-brand-400">
                       <FaIcon icon={faUpload} size={14} />
                       {busy === "cv"
                         ? "Procesando CV…"
@@ -520,7 +657,7 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
                   </div>
 
                   {settings.cvFileName && (
-                    <p className="rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+                    <p className="rounded-lg bg-emerald-50 px-3 py-2 text-label text-emerald-700">
                       CV cargado: <strong>{settings.cvFileName}</strong>{" "}
                       {settings.cvUploadedAt && <>· {formatDateTimeEs(settings.cvUploadedAt)}</>}
                     </p>
@@ -533,18 +670,26 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
           {settings.accessToken ? (
             <Card
               title="Preferencias"
-              actions={<FaIcon icon={faSliders} size={16} className="text-slate-400" />}
+              actions={<FaIcon icon={faSliders} size={16} className="text-ink-subtle" />}
             >
               <div className="space-y-3">
                 <Toggle
                   label="Sincronización automática"
+                  description="Sube y baja tus postulaciones entre equipos."
                   checked={settings.syncEnabled}
                   onChange={(value) => void changePreference({ syncEnabled: value })}
                 />
                 <Toggle
-                  label="Notificaciones de recordatorios"
+                  label="Notificaciones en el navegador"
+                  description="Avisos de Chrome sobre ofertas nuevas y recordatorios vencidos."
                   checked={settings.notificationsEnabled}
                   onChange={(value) => void changePreference({ notificationsEnabled: value })}
+                />
+                <Toggle
+                  label="Avisos por correo"
+                  description="Correos del servidor con recordatorios y resúmenes. No afecta a la confirmación de tu cuenta."
+                  checked={settings.emailNotificationsEnabled}
+                  onChange={(value) => void changePreference({ emailNotificationsEnabled: value })}
                 />
 
                 <Field label="Días para hacer seguimiento" hint="Entre 1 y 365 días">
@@ -570,17 +715,84 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
             </Card>
           ) : null}
 
+          {pending && (
+            <Card
+              title="Confirma tu correo"
+              className="lg:col-span-2"
+              actions={<FaIcon icon={faEnvelope} size={16} className="text-brand-600" />}
+            >
+              <div className="space-y-3">
+                <div className="flex items-start gap-3 rounded-control bg-brand-50 p-3">
+                  <FaIcon icon={faPaperPlane} size={16} className="mt-0.5 text-brand-600" />
+                  <div className="min-w-0">
+                    <p className="text-body text-ink">
+                      Enviamos un enlace de confirmación a{" "}
+                      <strong className="break-all">{pending.email}</strong>.
+                    </p>
+                    <p className="mt-0.5 text-label text-ink-muted">
+                      Ábrelo desde este navegador: la sesión se iniciará sola en cuanto confirmes.
+                      Si no lo ves, revisa la carpeta de spam.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge
+                    className={cn(
+                      new Date(pending.expiresAt).getTime() <= tick
+                        ? "bg-rose-50 text-rose-700"
+                        : "bg-surface-sunken text-ink-soft",
+                    )}
+                  >
+                    {remainingLabel(pending.expiresAt, tick)}
+                  </Badge>
+                  <Button
+                    size="sm"
+                    loading={verificationBusy}
+                    onClick={() => void refreshVerification(true)}
+                  >
+                    Ya lo confirmé
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => void resendEmail()}
+                    disabled={verificationBusy || Date.now() < resendAvailableAt}
+                  >
+                    <FaIcon icon={faEnvelope} size={13} /> Reenviar correo
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      void cancelVerification();
+                      setError(null);
+                      toast({ title: "Espera cancelada", description: "Puedes crear otra cuenta.", tone: "info" });
+                    }}
+                    disabled={verificationBusy}
+                  >
+                    Usar otra cuenta
+                  </Button>
+                </div>
+
+                <p className="text-label text-ink-muted">
+                  Los correos de confirmación caducan a los 30 minutos. Nunca compartas este enlace.
+                </p>
+              </div>
+            </Card>
+          )}
+
           <Card
             title="Cuenta"
-            actions={<FaIcon icon={faUser} size={16} className="text-slate-400" />}
+            actions={<FaIcon icon={faUser} size={16} className="text-ink-subtle" />}
           >
             {settings.user ? (
               <div className="space-y-3">
-                <div className="rounded-lg bg-slate-50 px-3 py-2 text-sm">
-                  <p className="font-medium text-slate-800">
+                <div className="rounded-lg bg-surface-muted px-3 py-2 text-sm">
+                  <p className="font-medium text-ink">
                     {settings.user.name ?? settings.user.email}
                   </p>
-                  <p className="text-xs text-slate-500">{settings.user.email}</p>
+                  <p className="text-label text-ink-muted">{settings.user.email}</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <Button
@@ -605,38 +817,41 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
                     <FaIcon icon={faRightFromBracket} size={14} /> Cerrar sesión
                   </Button>
                 </div>
-                <p className="text-xs text-slate-400">Cambios pendientes: {status?.pending ?? 0}</p>
+                <p className="text-label text-ink-subtle">Cambios pendientes: {status?.pending ?? 0}</p>
+              </div>
+            ) : pending ? (
+              <div className="space-y-2 text-body text-ink-muted">
+                <p className="font-medium text-ink">Estamos esperando tu confirmación</p>
+                <p className="text-label">
+                  La cuenta de {pending.email} se activará al abrir el enlace del correo. La sesión
+                  se iniciará automáticamente.
+                </p>
               </div>
             ) : (
-              <div className="space-y-3">
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setMode("login")}
-                    className={cn(
-                      "rounded-lg px-3 py-1.5 text-xs font-medium",
-                      mode === "login" ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-600",
-                    )}
-                  >
-                    Iniciar sesión
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setMode("register")}
-                    className={cn(
-                      "rounded-lg px-3 py-1.5 text-xs font-medium",
-                      mode === "register"
-                        ? "bg-brand-600 text-white"
-                        : "bg-slate-100 text-slate-600",
-                    )}
-                  >
-                    Crear cuenta
-                  </button>
-                </div>
+              <form
+                className="space-y-3"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void submitAuth();
+                }}
+              >
+                <Segmented
+                  label="Tipo de acceso"
+                  value={mode}
+                  onChange={setMode}
+                  options={[
+                    { value: "login", label: "Iniciar sesión" },
+                    { value: "register", label: "Crear cuenta" },
+                  ]}
+                />
 
                 {mode === "register" && (
-                  <Field label="Nombre">
-                    <Input value={name} onChange={(event) => setName(event.target.value)} />
+                  <Field label="Nombre" hint="Opcional; se usa para saludarte en los correos.">
+                    <Input
+                      value={name}
+                      onChange={(event) => setName(event.target.value)}
+                      autoComplete="name"
+                    />
                   </Field>
                 )}
                 <Field label="Correo">
@@ -645,24 +860,38 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
                     value={email}
                     onChange={(event) => setEmail(event.target.value)}
                     autoComplete="username"
+                    required
                   />
                 </Field>
                 <Field
                   label="Contraseña"
-                  hint={mode === "register" ? "Mínimo 10 caracteres" : undefined}
+                  hint={mode === "register" ? "Mínimo 10 caracteres." : undefined}
                 >
                   <Input
                     type="password"
                     value={password}
                     onChange={(event) => setPassword(event.target.value)}
                     autoComplete={mode === "login" ? "current-password" : "new-password"}
+                    required
                   />
                 </Field>
 
-                <Button size="sm" onClick={() => void submitAuth()} disabled={busy === "auth"}>
+                <Button
+                  type="submit"
+                  size="sm"
+                  loading={busy === "auth"}
+                  disabled={!email.trim() || !password}
+                >
                   {mode === "login" ? "Entrar" : "Crear cuenta"}
                 </Button>
-              </div>
+
+                {mode === "register" && (
+                  <p className="text-label text-ink-muted">
+                    Te enviaremos un correo para confirmar la cuenta. El enlace dura 30 minutos y
+                    solo entonces podrás iniciar sesión.
+                  </p>
+                )}
+              </form>
             )}
           </Card>
         </>
@@ -680,8 +909,8 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
           </div>
 
           <div>
-            <p className="mb-1 text-xs font-medium text-slate-500">Importar respaldo o CSV</p>
-            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-xs text-slate-500 hover:border-brand-400">
+            <p className="mb-1 text-label font-medium text-ink-muted">Importar respaldo o CSV</p>
+            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-line-strong bg-surface-muted px-3 py-2 text-label text-ink-muted hover:border-brand-400">
               <FaIcon icon={faUpload} size={14} />
               {busy === "import" ? "Importando…" : "Seleccionar archivo .json o .csv"}
               <input
@@ -720,14 +949,14 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
 
       <Card title={`Papelera (${deleted?.length ?? 0})`} className="lg:col-span-2">
         {!deleted || deleted.length === 0 ? (
-          <p className="text-xs text-slate-400">No hay postulaciones eliminadas.</p>
+          <p className="text-label text-ink-subtle">No hay postulaciones eliminadas.</p>
         ) : (
-          <ul className="divide-y divide-slate-100">
+          <ul className="divide-y divide-line">
             {deleted.map((application) => (
               <li key={application.id} className="flex items-center gap-3 py-2 text-sm">
                 <div className="min-w-0 flex-1">
-                  <p className="truncate font-medium text-slate-700">{application.jobTitle}</p>
-                  <p className="truncate text-xs text-slate-500">{application.company}</p>
+                  <p className="truncate font-medium text-ink-soft">{application.jobTitle}</p>
+                  <p className="truncate text-label text-ink-muted">{application.company}</p>
                 </div>
                 <Button
                   size="sm"
@@ -778,7 +1007,7 @@ export function SettingsView({ onRefreshStatus }: { onRefreshStatus: () => void 
       )}
 
       <Card title="Acerca de" className="lg:col-span-2">
-        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+        <div className="flex flex-wrap items-center justify-between gap-2 text-label text-ink-muted">
           <p>Postulia v{browser.runtime.getManifest().version}</p>
           <div className="flex flex-wrap gap-3">
             <a

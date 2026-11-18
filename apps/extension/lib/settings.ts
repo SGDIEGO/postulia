@@ -8,6 +8,14 @@ import { getMeta, setMeta } from "./db";
  */
 export const BACKEND_URL = "https://155-181-165-241.sslip.io";
 
+/** Verificación de correo pendiente, para sobrevivir a recargas del panel. */
+export interface PendingVerification {
+  email: string;
+  /** Token que la extensión usa para consultar el estado (no verifica). */
+  verificationToken: string;
+  expiresAt: string;
+}
+
 export interface PostuliaSettings {
   /** URL base de la API, por ejemplo https://api.postulia.tudominio.com */
   apiUrl: string;
@@ -20,7 +28,12 @@ export interface PostuliaSettings {
   lastSyncAt: string | null;
   lastSyncError: string | null;
   syncEnabled: boolean;
+  /** Avisos locales del navegador. */
   notificationsEnabled: boolean;
+  /** Correos que envía el servidor (recordatorios, resúmenes y alertas). */
+  emailNotificationsEnabled: boolean;
+  /** Registro que espera confirmar el correo. */
+  pendingVerification: PendingVerification | null;
   /** Días sugeridos para hacer seguimiento a una postulación. */
   followUpDays: number;
   /** Proveedor de IA configurado (por ahora "gemini"). */
@@ -48,6 +61,8 @@ export const DEFAULT_SETTINGS: PostuliaSettings = {
   lastSyncError: null,
   syncEnabled: true,
   notificationsEnabled: true,
+  emailNotificationsEnabled: true,
+  pendingVerification: null,
   followUpDays: 7,
   iaProvider: null,
   iaApiKey: null,
@@ -88,6 +103,7 @@ export async function clearSession(): Promise<PostuliaSettings> {
     user: null,
     lastPulledAt: null,
     lastSyncError: null,
+    pendingVerification: null,
   });
 }
 
